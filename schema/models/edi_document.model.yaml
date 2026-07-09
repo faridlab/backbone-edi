@@ -1,0 +1,118 @@
+# =============================================================================
+# Domain: EDI
+# Entity: EdiDocument
+# Description: One exchanged business document. INBOUND documents arrive from a partner (a PO/invoice/ASN)
+# and are DEDUPED on (partner, direction, control_number) — partners retransmit, so a redelivery must not
+# re-map (create a duplicate internal order). It is parsed + mapped to an internal document (a sales order,
+# a purchase invoice) via a MappingPort, then ACKNOWLEDGED back to the partner. OUTBOUND documents are
+# rendered from an internal document and transmitted. Posts NO GL.
+# =============================================================================
+
+models:
+  - name: EdiDocument
+    collection: edi_documents
+    description: "One inbound/outbound EDI business document with its exchange lifecycle"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique document id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      partner_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(TradingPartner.id)"]
+        description: "The trading partner"
+      doc_type:
+        type: EdiDocType
+        attributes: ["@required"]
+        description: "The business document type"
+      direction:
+        type: EdiDirection
+        attributes: ["@required"]
+        description: "inbound (from the partner) | outbound (to the partner)"
+      control_number:
+        type: string
+        attributes: ["@required", "@length(max=120)"]
+        description: "The partner's ENVELOPE control/transaction number (ISA13/GS06/ST02) — used for the ack, NOT dedup (it recycles)"
+      business_key:
+        type: string
+        attributes: ["@required", "@length(max=120)"]
+        description: "The BUSINESS document identity (the PO/invoice number, e.g. 850 BEG02) — the real dedup key, stable across the partner's control-number recycling"
+      status:
+        type: EdiStatus
+        attributes: ["@required", "@default(received)"]
+        description: "received → mapped → acknowledged (inbound) | generated → sent → acknowledged (outbound) | failed"
+      payload:
+        type: string
+        attributes: ["@required", "@length(max=20000)"]
+        description: "The raw document payload (EDI text / JSON)"
+      mapped_ref_type:
+        type: string?
+        attributes: ["@length(max=60)"]
+        description: "The internal document type this mapped to (sales_order | purchase_invoice)"
+      mapped_ref_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The internal document id # logical FK keyed by mapped_ref_type"
+      error_detail:
+        type: string?
+        attributes: ["@length(max=1000)"]
+        description: "Why parsing/mapping failed"
+      acknowledged_at:
+        type: datetime?
+        description: "When a functional acknowledgement was issued to the partner"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      # Dedup on the BUSINESS document identity, not the recycling envelope control number — a partner
+      # reissuing a wrapped control number for a NEW document must map as new, not be dropped as a
+      # "retransmission" (maturity council 2026-07-09).
+      - type: unique
+        fields: [partner_id, direction, business_key]
+      - type: index
+        fields: [company_id, status]
+
+enums:
+  - name: EdiDocType
+    description: "The business document type"
+    variants:
+      - name: purchase_order
+        description: "A PO the partner sends us (we fulfil as a sales order)"
+        default: true
+      - name: invoice
+        description: "An invoice"
+      - name: ship_notice
+        description: "An advance ship notice (ASN)"
+      - name: functional_ack
+        description: "A functional acknowledgement (997/CONTRL)"
+
+  - name: EdiDirection
+    description: "Document direction relative to us"
+    variants:
+      - name: inbound
+        description: "From the partner to us"
+        default: true
+      - name: outbound
+        description: "From us to the partner"
+
+  - name: EdiStatus
+    description: "Document exchange lifecycle"
+    variants:
+      - name: received
+        description: "Inbound document recorded, not yet mapped"
+        default: true
+      - name: mapped
+        description: "Parsed + mapped to an internal document"
+      - name: acknowledged
+        description: "A functional acknowledgement was issued/received"
+      - name: generated
+        description: "Outbound document rendered, not yet sent"
+      - name: sent
+        description: "Transmitted to the partner"
+      - name: failed
+        description: "Parsing/mapping/transmission failed"

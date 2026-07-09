@@ -1,0 +1,73 @@
+# =============================================================================
+# Domain: EDI
+# Entity: TradingPartner
+# Description: A B2B partner we exchange business documents with (PO / Invoice / ASN) over a wire format
+# (X12, EDIFACT, a partner's JSON/CSV). Carries the partner's code + format + which directions we handle.
+# EDI is deferred-hard (low SMB value in Indonesia) and promoted only when a partner mandates it.
+# =============================================================================
+
+models:
+  - name: TradingPartner
+    collection: trading_partners
+    description: "A B2B EDI trading partner (code + format + direction)"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique partner id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      name:
+        type: string
+        attributes: ["@required", "@length(max=200)"]
+        description: "Partner display name"
+      partner_code:
+        type: string
+        attributes: ["@required", "@length(max=80)"]
+        description: "Our identifier for the partner (their EDI qualifier+id)"
+      format:
+        type: EdiFormat
+        attributes: ["@required", "@default(custom_json)"]
+        description: "The wire format we exchange in"
+      partner_direction:
+        type: PartnerDirection
+        attributes: ["@required", "@default(both)"]
+        description: "Which directions we handle with this partner"
+      is_active:
+        type: boolean
+        attributes: ["@default(true)"]
+        description: "Only active partners exchange documents"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: unique
+        fields: [company_id, partner_code]
+
+enums:
+  - name: EdiFormat
+    description: "The EDI wire format"
+    variants:
+      - name: custom_json
+        description: "A partner-specific JSON payload"
+        default: true
+      - name: x12
+        description: "ANSI ASC X12"
+      - name: edifact
+        description: "UN/EDIFACT"
+      - name: csv
+        description: "A flat CSV layout"
+
+  - name: PartnerDirection
+    description: "Directions handled with a partner"
+    variants:
+      - name: both
+        description: "Inbound and outbound"
+        default: true
+      - name: inbound
+        description: "We only receive from this partner"
+      - name: outbound
+        description: "We only send to this partner"
