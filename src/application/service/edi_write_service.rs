@@ -1,0 +1,225 @@
+//! The hand-authored EDI write path (user-owned; survives regen).
+//!
+//! B2B document interchange: receive an inbound partner document **idempotently** on (partner, direction,
+//! control_number) — partners retransmit, so a redelivery must not re-map (create a duplicate internal
+//! order) — map it to an internal document via a `MappingPort`, and **acknowledge** it back to the partner
+//! (a functional ack, else the partner keeps retransmitting). Posts NO GL. The byte-level parsing of
+//! X12/EDIFACT is the composing service's concern; this module owns the exchange lifecycle.
+
+use chrono::Utc;
+use sqlx::{PgPool, Row};
+use uuid::Uuid;
+
+use super::edi_events::*;
+use super::edi_ports::*;
+
+#[derive(Debug, thiserror::Error)]
+pub enum EdiError {
+    #[error("db: {0}")]
+    Db(#[from] sqlx::Error),
+    #[error("not found: {0}")]
+    NotFound(&'static str),
+    #[error("invalid input: {0}")]
+    Invalid(String),
+    #[error("invalid state: {0}")]
+    InvalidState(&'static str),
+    #[error("mapping rejected: {0}")]
+    MappingRejected(String),
+}
+
+pub struct NewPartner {
+    pub company_id: Uuid,
+    pub name: String,
+    pub partner_code: String,
+    pub format: String,
+    pub partner_direction: String,
+}
+
+/// An inbound EDI document as delivered by a partner (already parsed into `payload`).
+pub struct InboundDoc {
+    pub company_id: Uuid,
+    pub partner_id: Uuid,
+    pub doc_type: String, // purchase_order | invoice | ship_notice
+    /// The partner's ENVELOPE control number (for the ack) — NOT the dedup key (it recycles).
+    pub control_number: String,
+    /// The BUSINESS document identity (the PO/invoice number) — the dedup key, stable across the partner's
+    /// control-number recycling.
+    pub business_key: String,
+    pub raw: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReceiveOutcome {
+    pub document_id: Uuid,
+    pub status: String, // mapped | failed | duplicate
+    pub mapped_ref_id: Option<Uuid>,
+    pub duplicate: bool,
+}
+
+pub struct EdiWriteService {
+    pool: PgPool,
+}
+
+impl EdiWriteService {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    /// Register a trading partner.
+    pub async fn create_partner(&self, p: NewPartner) -> Result<Uuid, EdiError> {
+        if p.name.trim().is_empty() || p.partner_code.trim().is_empty() {
+            return Err(EdiError::Invalid("partner needs a name and code".into()));
+        }
+        let id = Uuid::new_v4();
+        let r = sqlx::query(
+            r#"INSERT INTO edi.trading_partners
+                 (id, company_id, name, partner_code, format, partner_direction, is_active)
+               VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,true)"#,
+        )
+        .bind(id).bind(p.company_id).bind(&p.name).bind(&p.partner_code).bind(&p.format).bind(&p.partner_direction)
+        .execute(&self.pool)
+        .await;
+        match r {
+            Ok(_) => Ok(id),
+            Err(e) if e.as_database_error().map(|d| d.is_unique_violation()).unwrap_or(false) =>
+                Err(EdiError::Invalid("a partner with this code already exists".into())),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Receive an inbound document: dedup on (partner, inbound, control_number), record it, map it to an
+    /// internal document via the `MappingPort`, and record the outcome. A redelivered document (a partner
+    /// retransmission) returns the original with `duplicate=true` — it never re-maps. Emits
+    /// `EdiDocumentMapped` or `EdiDocumentFailed`.
+    pub async fn receive_document(
+        &self,
+        d: InboundDoc,
+        mapper: &dyn MappingPort,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
+        if d.control_number.trim().is_empty() {
+            return Err(EdiError::Invalid("an inbound document needs a control number".into()));
+        }
+        if d.business_key.trim().is_empty() {
+            return Err(EdiError::Invalid("an inbound document needs a business key (the PO/invoice number)".into()));
+        }
+
+        // Claim the (partner, inbound, business_key) dedup slot — a retransmission of the SAME business
+        // document conflicts here; a new document that reuses a recycled control number does not.
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            r#"INSERT INTO edi.edi_documents
+                 (id, company_id, partner_id, doc_type, direction, control_number, business_key, status, payload)
+               VALUES ($1,$2,$3,$4::edi_doc_type,'inbound'::edi_direction,$5,$6,'received'::edi_status,$7)
+               ON CONFLICT (partner_id, direction, business_key) DO NOTHING
+               RETURNING id"#,
+        )
+        .bind(Uuid::new_v4()).bind(d.company_id).bind(d.partner_id).bind(&d.doc_type)
+        .bind(&d.control_number).bind(&d.business_key).bind(&d.raw)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(document_id) = inserted else {
+            let row = sqlx::query(
+                r#"SELECT id, status::text AS status, mapped_ref_id FROM edi.edi_documents
+                   WHERE partner_id=$1 AND direction='inbound'::edi_direction AND business_key=$2"#,
+            )
+            .bind(d.partner_id).bind(&d.business_key)
+            .fetch_one(&self.pool)
+            .await?;
+            return Ok(ReceiveOutcome {
+                document_id: row.get("id"), status: row.get("status"),
+                mapped_ref_id: row.get("mapped_ref_id"), duplicate: true,
+            });
+        };
+
+        // Map to an internal document via the target module (external — creates a real sales order/invoice).
+        let req = MapRequest {
+            company_id: d.company_id, partner_id: d.partner_id, doc_type: d.doc_type.clone(),
+            control_number: d.control_number.clone(), idempotency_key: document_id.to_string(),
+            payload: d.payload.clone(),
+        };
+        match mapper.map(&req).await {
+            Ok(ack) => {
+                let event = EdiEvent::EdiDocumentMapped(EdiDocumentMapped {
+                    document_id, company_id: d.company_id, partner_id: d.partner_id, doc_type: d.doc_type.clone(),
+                    control_number: d.control_number.clone(),
+                    internal_ref_type: ack.internal_ref_type.clone(), internal_ref_id: ack.internal_ref_id,
+                });
+                let mut tx = self.pool.begin().await?;
+                sqlx::query(
+                    r#"UPDATE edi.edi_documents
+                       SET status='mapped'::edi_status, mapped_ref_type=$2, mapped_ref_id=$3
+                       WHERE id=$1 AND status='received'::edi_status"#,
+                )
+                .bind(document_id).bind(&ack.internal_ref_type).bind(ack.internal_ref_id)
+                .execute(&mut *tx).await?;
+                stage(&mut tx, &event).await?;
+                tx.commit().await?;
+                events.publish(&event);
+                Ok(ReceiveOutcome { document_id, status: "mapped".into(), mapped_ref_id: Some(ack.internal_ref_id), duplicate: false })
+            }
+            Err(rej) => {
+                let event = EdiEvent::EdiDocumentFailed {
+                    document_id, company_id: d.company_id, partner_id: d.partner_id,
+                    control_number: d.control_number.clone(), reason: rej.code.clone(),
+                };
+                let mut tx = self.pool.begin().await?;
+                sqlx::query(
+                    r#"UPDATE edi.edi_documents SET status='failed'::edi_status, error_detail=$2
+                       WHERE id=$1 AND status='received'::edi_status"#,
+                )
+                .bind(document_id).bind(&rej.message)
+                .execute(&mut *tx).await?;
+                stage(&mut tx, &event).await?;
+                tx.commit().await?;
+                events.publish(&event);
+                Ok(ReceiveOutcome { document_id, status: "failed".into(), mapped_ref_id: None, duplicate: false })
+            }
+        }
+    }
+
+    /// Issue a functional acknowledgement to the partner for a mapped/failed document. Idempotent
+    /// (state-guarded); emits `EdiDocumentAcknowledged`.
+    pub async fn acknowledge(&self, document_id: Uuid, events: &dyn EdiEventSink) -> Result<bool, EdiError> {
+        // Capture the PRE-update status (mapped → accepted, failed → rejected) + the error via a CTE, so
+        // the emitted event carries the 997 polarity the consumer needs to generate the wire ack.
+        let row = sqlx::query(
+            r#"WITH d AS (
+                 SELECT id, partner_id, control_number, (status='mapped'::edi_status) AS accepted, error_detail
+                 FROM edi.edi_documents
+                 WHERE id=$1 AND status IN ('mapped'::edi_status,'failed'::edi_status)
+                 FOR UPDATE)
+               UPDATE edi.edi_documents e SET status='acknowledged'::edi_status, acknowledged_at=now()
+               FROM d WHERE e.id = d.id
+               RETURNING d.partner_id, d.control_number, d.accepted, d.error_detail"#,
+        )
+        .bind(document_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else { return Ok(false) };
+        let accepted: bool = row.get("accepted");
+        events.publish(&EdiEvent::EdiDocumentAcknowledged {
+            document_id, partner_id: row.get("partner_id"), control_number: row.get("control_number"),
+            accepted, error_detail: if accepted { None } else { row.get("error_detail") },
+        });
+        Ok(true)
+    }
+}
+
+async fn stage(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, event: &EdiEvent) -> Result<(), EdiError> {
+    let (etype, agg_id) = match event {
+        EdiEvent::EdiDocumentMapped(m) => ("EdiDocumentMapped", m.document_id),
+        EdiEvent::EdiDocumentFailed { document_id, .. } => ("EdiDocumentFailed", *document_id),
+        EdiEvent::EdiDocumentAcknowledged { document_id, .. } => ("EdiDocumentAcknowledged", *document_id),
+    };
+    let record = backbone_outbox::OutboxRecord::new(
+        etype, "EdiDocument", agg_id.to_string(),
+        serde_json::to_value(event).map_err(|e| EdiError::Invalid(e.to_string()))?,
+        Utc::now(),
+    );
+    backbone_outbox::outbox::stage(&mut **tx, "edi", &record)
+        .await
+        .map_err(|e| EdiError::Invalid(format!("outbox stage: {e}")))?;
+    Ok(())
+}
