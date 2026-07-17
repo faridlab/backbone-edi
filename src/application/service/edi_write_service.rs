@@ -6,6 +6,7 @@
 //! (a functional ack, else the partner keeps retransmitting). Posts NO GL. The byte-level parsing of
 //! X12/EDIFACT is the composing service's concern; this module owns the exchange lifecycle.
 
+use backbone_orm::company_scope;
 use chrono::Utc;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -72,13 +73,21 @@ impl EdiWriteService {
             return Err(EdiError::Invalid("partner needs a name and code".into()));
         }
         let id = Uuid::new_v4();
-        let r = sqlx::query(
-            r#"INSERT INTO edi.trading_partners
-                 (id, company_id, name, partner_code, format, partner_direction, is_active)
-               VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,true)"#,
+        // RLS scope (ADR-0008): company on the DTO — bind it so the INSERT satisfies the WITH CHECK
+        // fence on `app.company_id`.
+        let company = p.company_id;
+        let r = company_scope::with_company_scope(
+            Some(company),
+            company_scope::execute_scoped(
+                &self.pool,
+                sqlx::query(
+                    r#"INSERT INTO edi.trading_partners
+                         (id, company_id, name, partner_code, format, partner_direction, is_active)
+                       VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,true)"#,
+                )
+                .bind(id).bind(p.company_id).bind(&p.name).bind(&p.partner_code).bind(&p.format).bind(&p.partner_direction),
+            ),
         )
-        .bind(id).bind(p.company_id).bind(&p.name).bind(&p.partner_code).bind(&p.format).bind(&p.partner_direction)
-        .execute(&self.pool)
         .await;
         match r {
             Ok(_) => Ok(id),
@@ -107,25 +116,41 @@ impl EdiWriteService {
 
         // Claim the (partner, inbound, business_key) dedup slot — a retransmission of the SAME business
         // document conflicts here; a new document that reuses a recycled control number does not.
-        let inserted: Option<Uuid> = sqlx::query_scalar(
-            r#"INSERT INTO edi.edi_documents
-                 (id, company_id, partner_id, doc_type, direction, control_number, business_key, status, payload)
-               VALUES ($1,$2,$3,$4::edi_doc_type,'inbound'::edi_direction,$5,$6,'received'::edi_status,$7)
-               ON CONFLICT (partner_id, direction, business_key) DO NOTHING
-               RETURNING id"#,
+        // RLS scope (ADR-0008): the inbound document carries its company on the DTO — bind it explicitly
+        // on every statement, so the dedup INSERT passes the WITH CHECK fence and the redelivery lookup
+        // sees the original. Partner retransmissions arrive off-request (no ambient scope), so an
+        // explicit company here is what keeps the dedup honest rather than failing closed into a
+        // duplicate internal order.
+        let company = d.company_id;
+        let inserted: Option<Uuid> = company_scope::with_company_scope(
+            Some(company),
+            company_scope::fetch_optional_scalar_scoped(
+                &self.pool,
+                sqlx::query_scalar(
+                    r#"INSERT INTO edi.edi_documents
+                         (id, company_id, partner_id, doc_type, direction, control_number, business_key, status, payload)
+                       VALUES ($1,$2,$3,$4::edi_doc_type,'inbound'::edi_direction,$5,$6,'received'::edi_status,$7)
+                       ON CONFLICT (partner_id, direction, business_key) DO NOTHING
+                       RETURNING id"#,
+                )
+                .bind(Uuid::new_v4()).bind(d.company_id).bind(d.partner_id).bind(&d.doc_type)
+                .bind(&d.control_number).bind(&d.business_key).bind(&d.raw),
+            ),
         )
-        .bind(Uuid::new_v4()).bind(d.company_id).bind(d.partner_id).bind(&d.doc_type)
-        .bind(&d.control_number).bind(&d.business_key).bind(&d.raw)
-        .fetch_optional(&self.pool)
         .await?;
 
         let Some(document_id) = inserted else {
-            let row = sqlx::query(
-                r#"SELECT id, status::text AS status, mapped_ref_id FROM edi.edi_documents
-                   WHERE partner_id=$1 AND direction='inbound'::edi_direction AND business_key=$2"#,
+            let row = company_scope::with_company_scope(
+                Some(company),
+                company_scope::fetch_one_row_scoped(
+                    &self.pool,
+                    sqlx::query(
+                        r#"SELECT id, status::text AS status, mapped_ref_id FROM edi.edi_documents
+                           WHERE partner_id=$1 AND direction='inbound'::edi_direction AND business_key=$2"#,
+                    )
+                    .bind(d.partner_id).bind(&d.business_key),
+                ),
             )
-            .bind(d.partner_id).bind(&d.business_key)
-            .fetch_one(&self.pool)
             .await?;
             return Ok(ReceiveOutcome {
                 document_id: row.get("id"), status: row.get("status"),
@@ -147,6 +172,9 @@ impl EdiWriteService {
                     internal_ref_type: ack.internal_ref_type.clone(), internal_ref_id: ack.internal_ref_id,
                 });
                 let mut tx = self.pool.begin().await?;
+                // RLS scope (ADR-0008): bind this document's own company onto the tx (the outbox stage
+                // rides it too).
+                company_scope::bind_company_on(&mut tx, company).await?;
                 sqlx::query(
                     r#"UPDATE edi.edi_documents
                        SET status='mapped'::edi_status, mapped_ref_type=$2, mapped_ref_id=$3
@@ -165,6 +193,8 @@ impl EdiWriteService {
                     control_number: d.control_number.clone(), reason: rej.code.clone(),
                 };
                 let mut tx = self.pool.begin().await?;
+                // RLS scope (ADR-0008): bind this document's own company onto the tx.
+                company_scope::bind_company_on(&mut tx, company).await?;
                 sqlx::query(
                     r#"UPDATE edi.edi_documents SET status='failed'::edi_status, error_detail=$2
                        WHERE id=$1 AND status='received'::edi_status"#,
@@ -184,18 +214,25 @@ impl EdiWriteService {
     pub async fn acknowledge(&self, document_id: Uuid, events: &dyn EdiEventSink) -> Result<bool, EdiError> {
         // Capture the PRE-update status (mapped → accepted, failed → rejected) + the error via a CTE, so
         // the emitted event carries the 997 polarity the consumer needs to generate the wire ack.
-        let row = sqlx::query(
-            r#"WITH d AS (
-                 SELECT id, partner_id, control_number, (status='mapped'::edi_status) AS accepted, error_detail
-                 FROM edi.edi_documents
-                 WHERE id=$1 AND status IN ('mapped'::edi_status,'failed'::edi_status)
-                 FOR UPDATE)
-               UPDATE edi.edi_documents e SET status='acknowledged'::edi_status, acknowledged_at=now()
-               FROM d WHERE e.id = d.id
-               RETURNING d.partner_id, d.control_number, d.accepted, d.error_detail"#,
+        // RLS scope (ADR-0008), ID-only pattern: identified by the document id alone, with no company
+        // argument to bind. Under HTTP this rides the request-dedicated connection (which carries the
+        // caller's `app.company_id`), so another company's document simply is not found. A non-request
+        // caller (an ack job / an event-driven sink) MUST wrap this in
+        // `with_company_scope(Some(company_id))` — otherwise it fails closed and returns Ok(false).
+        let row = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"WITH d AS (
+                     SELECT id, partner_id, control_number, (status='mapped'::edi_status) AS accepted, error_detail
+                     FROM edi.edi_documents
+                     WHERE id=$1 AND status IN ('mapped'::edi_status,'failed'::edi_status)
+                     FOR UPDATE)
+                   UPDATE edi.edi_documents e SET status='acknowledged'::edi_status, acknowledged_at=now()
+                   FROM d WHERE e.id = d.id
+                   RETURNING d.partner_id, d.control_number, d.accepted, d.error_detail"#,
+            )
+            .bind(document_id),
         )
-        .bind(document_id)
-        .fetch_optional(&self.pool)
         .await?;
         let Some(row) = row else { return Ok(false) };
         let accepted: bool = row.get("accepted");
