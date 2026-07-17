@@ -14,6 +14,12 @@ user_owned:
   - "src/application/service/edi_events.rs"
   - "src/application/service/edi_ports.rs"
   - "src/application/service/edi_write_service.rs"
+  # Own the hand-written EDI SQL (the partner registration, the inbound dedup claim + re-read, the
+  # mapped/failed state transitions, the acknowledge CTE) that the write service orchestrates. Declared
+  # here — not renamed with a `_custom` suffix — so the generator skips them wholesale; this declaration
+  # is what makes editing them legitimate.
+  - "src/infrastructure/persistence/edi_document_repository.rs"
+  - "src/infrastructure/persistence/trading_partner_repository.rs"
   - "tests/edi_golden_cases.rs"
   - "tests/edi_selling_seam.rs"
   - "tests/integrity_probes.rs"

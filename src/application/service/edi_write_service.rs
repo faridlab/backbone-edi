@@ -8,8 +8,12 @@
 
 use backbone_orm::company_scope;
 use chrono::Utc;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
+
+use crate::infrastructure::persistence::{
+    EdiDocumentRepository, NewInboundDocRow, NewPartnerRow, TradingPartnerRepository,
+};
 
 use super::edi_events::*;
 use super::edi_ports::*;
@@ -60,11 +64,15 @@ pub struct ReceiveOutcome {
 
 pub struct EdiWriteService {
     pool: PgPool,
+    partners: TradingPartnerRepository,
+    documents: EdiDocumentRepository,
 }
 
 impl EdiWriteService {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        let partners = TradingPartnerRepository::new(pool.clone());
+        let documents = EdiDocumentRepository::new(pool.clone());
+        Self { pool, partners, documents }
     }
 
     /// Register a trading partner.
@@ -78,15 +86,14 @@ impl EdiWriteService {
         let company = p.company_id;
         let r = company_scope::with_company_scope(
             Some(company),
-            company_scope::execute_scoped(
-                &self.pool,
-                sqlx::query(
-                    r#"INSERT INTO edi.trading_partners
-                         (id, company_id, name, partner_code, format, partner_direction, is_active)
-                       VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,true)"#,
-                )
-                .bind(id).bind(p.company_id).bind(&p.name).bind(&p.partner_code).bind(&p.format).bind(&p.partner_direction),
-            ),
+            self.partners.insert_partner(&self.pool, &NewPartnerRow {
+                id,
+                company_id: p.company_id,
+                name: &p.name,
+                partner_code: &p.partner_code,
+                format: &p.format,
+                partner_direction: &p.partner_direction,
+            }),
         )
         .await;
         match r {
@@ -124,37 +131,27 @@ impl EdiWriteService {
         let company = d.company_id;
         let inserted: Option<Uuid> = company_scope::with_company_scope(
             Some(company),
-            company_scope::fetch_optional_scalar_scoped(
-                &self.pool,
-                sqlx::query_scalar(
-                    r#"INSERT INTO edi.edi_documents
-                         (id, company_id, partner_id, doc_type, direction, control_number, business_key, status, payload)
-                       VALUES ($1,$2,$3,$4::edi_doc_type,'inbound'::edi_direction,$5,$6,'received'::edi_status,$7)
-                       ON CONFLICT (partner_id, direction, business_key) DO NOTHING
-                       RETURNING id"#,
-                )
-                .bind(Uuid::new_v4()).bind(d.company_id).bind(d.partner_id).bind(&d.doc_type)
-                .bind(&d.control_number).bind(&d.business_key).bind(&d.raw),
-            ),
+            self.documents.claim_inbound(&self.pool, &NewInboundDocRow {
+                id: Uuid::new_v4(),
+                company_id: d.company_id,
+                partner_id: d.partner_id,
+                doc_type: &d.doc_type,
+                control_number: &d.control_number,
+                business_key: &d.business_key,
+                raw: &d.raw,
+            }),
         )
         .await?;
 
         let Some(document_id) = inserted else {
             let row = company_scope::with_company_scope(
                 Some(company),
-                company_scope::fetch_one_row_scoped(
-                    &self.pool,
-                    sqlx::query(
-                        r#"SELECT id, status::text AS status, mapped_ref_id FROM edi.edi_documents
-                           WHERE partner_id=$1 AND direction='inbound'::edi_direction AND business_key=$2"#,
-                    )
-                    .bind(d.partner_id).bind(&d.business_key),
-                ),
+                self.documents.fetch_inbound_by_business_key(&self.pool, d.partner_id, &d.business_key),
             )
             .await?;
             return Ok(ReceiveOutcome {
-                document_id: row.get("id"), status: row.get("status"),
-                mapped_ref_id: row.get("mapped_ref_id"), duplicate: true,
+                document_id: row.id, status: row.status,
+                mapped_ref_id: row.mapped_ref_id, duplicate: true,
             });
         };
 
@@ -175,13 +172,9 @@ impl EdiWriteService {
                 // RLS scope (ADR-0008): bind this document's own company onto the tx (the outbox stage
                 // rides it too).
                 company_scope::bind_company_on(&mut tx, company).await?;
-                sqlx::query(
-                    r#"UPDATE edi.edi_documents
-                       SET status='mapped'::edi_status, mapped_ref_type=$2, mapped_ref_id=$3
-                       WHERE id=$1 AND status='received'::edi_status"#,
-                )
-                .bind(document_id).bind(&ack.internal_ref_type).bind(ack.internal_ref_id)
-                .execute(&mut *tx).await?;
+                self.documents
+                    .mark_mapped(&mut tx, document_id, &ack.internal_ref_type, ack.internal_ref_id)
+                    .await?;
                 stage(&mut tx, &event).await?;
                 tx.commit().await?;
                 events.publish(&event);
@@ -195,12 +188,7 @@ impl EdiWriteService {
                 let mut tx = self.pool.begin().await?;
                 // RLS scope (ADR-0008): bind this document's own company onto the tx.
                 company_scope::bind_company_on(&mut tx, company).await?;
-                sqlx::query(
-                    r#"UPDATE edi.edi_documents SET status='failed'::edi_status, error_detail=$2
-                       WHERE id=$1 AND status='received'::edi_status"#,
-                )
-                .bind(document_id).bind(&rej.message)
-                .execute(&mut *tx).await?;
+                self.documents.mark_failed(&mut tx, document_id, &rej.message).await?;
                 stage(&mut tx, &event).await?;
                 tx.commit().await?;
                 events.publish(&event);
@@ -219,26 +207,12 @@ impl EdiWriteService {
         // caller's `app.company_id`), so another company's document simply is not found. A non-request
         // caller (an ack job / an event-driven sink) MUST wrap this in
         // `with_company_scope(Some(company_id))` — otherwise it fails closed and returns Ok(false).
-        let row = company_scope::fetch_optional_row_scoped(
-            &self.pool,
-            sqlx::query(
-                r#"WITH d AS (
-                     SELECT id, partner_id, control_number, (status='mapped'::edi_status) AS accepted, error_detail
-                     FROM edi.edi_documents
-                     WHERE id=$1 AND status IN ('mapped'::edi_status,'failed'::edi_status)
-                     FOR UPDATE)
-                   UPDATE edi.edi_documents e SET status='acknowledged'::edi_status, acknowledged_at=now()
-                   FROM d WHERE e.id = d.id
-                   RETURNING d.partner_id, d.control_number, d.accepted, d.error_detail"#,
-            )
-            .bind(document_id),
-        )
-        .await?;
+        let row = self.documents.acknowledge(&self.pool, document_id).await?;
         let Some(row) = row else { return Ok(false) };
-        let accepted: bool = row.get("accepted");
+        let accepted = row.accepted;
         events.publish(&EdiEvent::EdiDocumentAcknowledged {
-            document_id, partner_id: row.get("partner_id"), control_number: row.get("control_number"),
-            accepted, error_detail: if accepted { None } else { row.get("error_detail") },
+            document_id, partner_id: row.partner_id, control_number: row.control_number,
+            accepted, error_detail: if accepted { None } else { row.error_detail },
         });
         Ok(true)
     }
