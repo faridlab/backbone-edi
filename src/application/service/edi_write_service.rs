@@ -224,10 +224,15 @@ async fn stage(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, event: &EdiEvent)
         EdiEvent::EdiDocumentFailed { document_id, .. } => ("EdiDocumentFailed", *document_id),
         EdiEvent::EdiDocumentAcknowledged { document_id, .. } => ("EdiDocumentAcknowledged", *document_id),
     };
+    let payload = serde_json::to_value(event).map_err(|e| EdiError::Invalid(e.to_string()))?;
+    let company_id: Uuid = payload
+        .get("company_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| EdiError::Invalid("edi event missing company_id".into()))?
+        .parse()
+        .map_err(|e| EdiError::Invalid(format!("company_id parse: {e}")))?;
     let record = backbone_outbox::OutboxRecord::new(
-        etype, "EdiDocument", agg_id.to_string(),
-        serde_json::to_value(event).map_err(|e| EdiError::Invalid(e.to_string()))?,
-        Utc::now(),
+        etype, "EdiDocument", agg_id.to_string(), company_id, payload, Utc::now(),
     );
     backbone_outbox::outbox::stage(&mut **tx, "edi", &record)
         .await
