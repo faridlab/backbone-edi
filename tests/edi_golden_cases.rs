@@ -91,8 +91,8 @@ async fn egc4_acknowledge() {
     let sink = CapturingSink::new();
 
     let out = svc.receive_document(po(company, p, "CTRL-4"), &FakeMapper::new(), &sink).await.unwrap();
-    assert!(svc.acknowledge(out.document_id, &sink).await.unwrap());
-    assert!(!svc.acknowledge(out.document_id, &sink).await.unwrap(), "second ack is a no-op");
+    assert!(svc.acknowledge(out.document_id, company, &sink).await.unwrap());
+    assert!(!svc.acknowledge(out.document_id, company, &sink).await.unwrap(), "second ack is a no-op");
     assert_eq!(sink.acknowledged(), 1);
     let status: String = sqlx::query_scalar("SELECT status::text FROM edi.edi_documents WHERE id=$1")
         .bind(out.document_id).fetch_one(&pool).await.unwrap();
@@ -113,10 +113,10 @@ async fn egc5_acknowledge_event_carries_polarity() {
 
     // A REJECTED document → negative ack carrying the reason.
     let bad = svc.receive_document(po(company, p, "CTRL-R"), &FakeMapper::rejecting("bad", "missing customer"), &sink).await.unwrap();
-    svc.acknowledge(bad.document_id, &sink).await.unwrap();
+    svc.acknowledge(bad.document_id, company, &sink).await.unwrap();
     // An ACCEPTED document → positive ack, no reason.
     let good = svc.receive_document(po(company, p, "CTRL-G"), &FakeMapper::new(), &sink).await.unwrap();
-    svc.acknowledge(good.document_id, &sink).await.unwrap();
+    svc.acknowledge(good.document_id, company, &sink).await.unwrap();
 
     let acks: Vec<(Uuid, bool, Option<String>)> = sink.events.lock().unwrap().iter().filter_map(|e| match e {
         EdiEvent::EdiDocumentAcknowledged { document_id, accepted, error_detail, .. } =>

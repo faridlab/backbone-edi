@@ -199,22 +199,33 @@ impl EdiWriteService {
 
     /// Issue a functional acknowledgement to the partner for a mapped/failed document. Idempotent
     /// (state-guarded); emits `EdiDocumentAcknowledged`.
-    pub async fn acknowledge(&self, document_id: Uuid, events: &dyn EdiEventSink) -> Result<bool, EdiError> {
+    ///
+    /// `company_id` scopes the guarded update for the same reason as [`Self::receive_document`]: the
+    /// caller's tenant must own the row. An event/job caller can no longer forget to scope — passing
+    /// the event's company here is what fences the `UPDATE`, so another company's document is
+    /// indistinguishable from a missing/already-acknowledged one (`Ok(false)`).
+    pub async fn acknowledge(
+        &self,
+        document_id: Uuid,
+        company_id: Uuid,
+        events: &dyn EdiEventSink,
+    ) -> Result<bool, EdiError> {
         // Capture the PRE-update status (mapped → accepted, failed → rejected) + the error via a CTE, so
         // the emitted event carries the 997 polarity the consumer needs to generate the wire ack.
-        // RLS scope (ADR-0008), ID-only pattern: identified by the document id alone, with no company
-        // argument to bind. Under HTTP this rides the request-dedicated connection (which carries the
-        // caller's `app.company_id`), so another company's document simply is not found. A non-request
-        // caller (an ack job / an event-driven sink) MUST wrap this in
-        // `with_company_scope(Some(company_id))` — otherwise it fails closed and returns Ok(false).
-        let row = self.documents.acknowledge(&self.pool, document_id).await?;
-        let Some(row) = row else { return Ok(false) };
-        let accepted = row.accepted;
-        events.publish(&EdiEvent::EdiDocumentAcknowledged {
-            document_id, partner_id: row.partner_id, control_number: row.control_number,
-            accepted, error_detail: if accepted { None } else { row.error_detail },
-        });
-        Ok(true)
+        // RLS scope (ADR-0008): company on the parameter — scope the guarded update so it runs with
+        // `app.company_id` set. The repository holds the statement; the scope wrapper stays here, in
+        // the service.
+        company_scope::with_company_scope(Some(company_id), async move {
+            let row = self.documents.acknowledge(&self.pool, document_id).await?;
+            let Some(row) = row else { return Ok(false) };
+            let accepted = row.accepted;
+            events.publish(&EdiEvent::EdiDocumentAcknowledged {
+                document_id, partner_id: row.partner_id, control_number: row.control_number,
+                accepted, error_detail: if accepted { None } else { row.error_detail },
+            });
+            Ok(true)
+        })
+        .await
     }
 }
 
