@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "backbone-edi"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -298,6 +298,18 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "validator",
+]
+
+[[package]]
+name = "backbone-gl-posting"
+version = "0.1.0"
+source = "git+https://github.com/faridlab/backbone-framework?tag=v2.7.5#15a7d6cd42d1398bababc5bac38230608a838a07"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "rust_decimal",
+ "serde",
+ "uuid",
 ]
 
 [[package]]
@@ -348,13 +360,14 @@ dependencies = [
 
 [[package]]
 name = "backbone-selling"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "backbone-auth",
  "backbone-core",
+ "backbone-gl-posting",
  "backbone-messaging",
  "backbone-orm",
  "backbone-outbox",
