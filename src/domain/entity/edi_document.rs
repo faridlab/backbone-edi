@@ -288,6 +288,9 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
     fn search_fields() -> &'static [&'static str] {
         &["control_number", "business_key", "payload"]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for EdiDocument entity

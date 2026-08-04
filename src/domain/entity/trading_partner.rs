@@ -221,6 +221,9 @@ impl backbone_orm::EntityRepoMeta for TradingPartner {
     fn search_fields() -> &'static [&'static str] {
         &["name", "partner_code"]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for TradingPartner entity
