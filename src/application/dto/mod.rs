@@ -5,9 +5,3 @@
 //! DTOs provide a clean separation between domain entities and API
 //! representations, with validation and OpenAPI documentation support.
 
-pub mod example_dto;
-
-pub use example_dto::{
-    CreateExampleDto, UpdateExampleDto, PatchExampleDto,
-    ExampleResponseDto, ExampleListResponseDto, ExampleSummaryDto,
-};
