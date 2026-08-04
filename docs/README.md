@@ -2,11 +2,10 @@
 
 The documentation set for the **`edi`** Backbone Framework domain module.
 
-> **This handbook is stamped from the [module skeleton][skel].** In the unmodified skeleton,
-> `edi` is `backbone-module-skeleton` (v0.1.3) and the reference entity is `Example` — one
-> entity wired end-to-end that you rename to your own domain concept. Because `docs/**` is a
-> `user_owned` path, this handbook is copied into your module and is yours to adapt: start with
-> **[Adapting this handbook to your module](handbook/00-adapting-to-your-module.md)**.
+> **`edi` is the Backbone Framework's EDI (B2B document interchange) module** — trading partners
+> and EDI documents with a durable lifecycle, a multi-tenant transactional outbox, and a validated
+> write service. This handbook was stamped from the [module skeleton][skel] and adapted to the EDI
+> domain. `docs/**` is a `user_owned` path, so it is yours to maintain.
 
 [skel]: ../README.md
 
