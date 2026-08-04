@@ -23,6 +23,7 @@ pub mod infrastructure;
 pub mod application;
 pub mod presentation;
 pub mod seeders;
+pub mod exports;
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -54,8 +55,10 @@ use sqlx::PgPool;
 /// let router = edi.all_crud_routes();
 /// ```
 pub struct EdiModule {
-    pub edi_document_service: Arc<EdiDocumentService>,
-    pub trading_partner_service: Arc<TradingPartnerService>,
+    pub(crate) edi_document_service: Arc<EdiDocumentService>,
+    pub(crate) trading_partner_service: Arc<TradingPartnerService>,
+    // <<< CUSTOM FIELDS
+    // END CUSTOM
 }
 
 impl EdiModule {
@@ -85,10 +88,29 @@ impl EdiModule {
     /// mount exposes unguarded writes. Compose a guarded router (read + validated
     /// writes) for production, or call `all_crud_routes()` to opt into the full
     /// unguarded surface explicitly.
-    #[deprecated(note = "mounts unvalidated generic CRUD on every entity; compose a guarded router for production, or call all_crud_routes() for the intentional full/unguarded surface")]
+    #[deprecated(note = "mounts unvalidated generic CRUD; prefer readonly_routes() + validated writes, or all_crud_routes() for the full/unguarded surface")]
     pub fn routes(&self) -> Router {
         self.all_crud_routes()
     }
+
+    /// Read-only routes for every entity (GET endpoints only) — the safe base.
+    ///
+    /// Generic mutation can't reach here, so this surface cannot bypass a
+    /// validated write service's invariants. Use this as the production base and
+    /// merge validated write routes (or a write service's HTTP layer) onto it.
+    pub fn readonly_routes(&self) -> Router {
+        use presentation::http::{
+            create_edi_document_read_routes,
+            create_trading_partner_read_routes,
+        };
+
+        Router::new()
+            .merge(create_edi_document_read_routes(self.edi_document_service.clone()))
+            .merge(create_trading_partner_read_routes(self.trading_partner_service.clone()))
+    }
+
+    // <<< CUSTOM METHODS
+    // END CUSTOM
 }
 
 /// Builder for EdiModule

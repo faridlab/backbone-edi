@@ -8,7 +8,7 @@
 //! ## Usage from other modules
 //!
 //! ```text
-//! use edi::exports::{EdiDocumentDto, EdiQueryService};
+//! use edi::exports::{EdiDocumentDto};
 //! ```
 
 mod types;
@@ -33,9 +33,6 @@ pub use events::*;
 /// - `TradingPartnerDto` - Data transfer object for TradingPartner
 /// - `TradingPartnerSummary` - Summary view of TradingPartner
 /// - `TradingPartnerId` - Type-safe ID wrapper
-///
-/// ## Public Services
-/// - `EdiQueryService` - Read-only queries
 ///
 /// ## Public Events
 /// - `EdiDocumentCreatedEvent` - Published when EdiDocument is created

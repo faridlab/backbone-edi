@@ -43,7 +43,7 @@ models:
         description: "The BUSINESS document identity (the PO/invoice number, e.g. 850 BEG02) — the real dedup key, stable across the partner's control-number recycling"
       status:
         type: EdiStatus
-        attributes: ["@required", "@default(received)"]
+        attributes: ["@required", "@default(received)", "@exclude_from_dto"]
         description: "received → mapped → acknowledged (inbound) | generated → sent → acknowledged (outbound) | failed"
       payload:
         type: string
@@ -51,18 +51,19 @@ models:
         description: "The raw document payload (EDI text / JSON)"
       mapped_ref_type:
         type: string?
-        attributes: ["@length(max=60)"]
+        attributes: ["@length(max=60)", "@exclude_from_dto"]
         description: "The internal document type this mapped to (sales_order | purchase_invoice)"
       mapped_ref_id:
         type: uuid?
-        attributes: ["@exclude_from_foreign_key_check"]
+        attributes: ["@exclude_from_foreign_key_check", "@exclude_from_dto"]
         description: "The internal document id # logical FK keyed by mapped_ref_type"
       error_detail:
         type: string?
-        attributes: ["@length(max=1000)"]
+        attributes: ["@length(max=1000)", "@exclude_from_dto"]
         description: "Why parsing/mapping failed"
       acknowledged_at:
         type: datetime?
+        attributes: ["@exclude_from_dto"]
         description: "When a functional acknowledgement was issued to the partner"
       metadata:
         type: Metadata
