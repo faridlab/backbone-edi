@@ -14,6 +14,12 @@ version: 2
 schema: edi
 description: "edi domain module"
 
+# ADR-0014 company fence: every schema entity here (edi_documents,
+# trading_partners) is company-scoped and fenced strict. outbox/inbox tables are
+# relay infrastructure, not schema models — fenced by their own migrations, outside
+# this declaration.
+company_fence: strict
+
 config:
   database: postgresql
   soft_delete: true
