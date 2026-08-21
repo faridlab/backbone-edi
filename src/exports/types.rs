@@ -119,7 +119,7 @@ pub struct TradingPartnerDto {
     pub partner_code: String,
     pub format: EdiFormat,
     pub partner_direction: PartnerDirection,
-    pub is_active: bool,
+    pub status: TradingPartnerStatus,
     pub metadata: serde_json::Value,
 }
 
@@ -128,6 +128,7 @@ pub struct TradingPartnerDto {
 pub struct TradingPartnerSummary {
     pub id: TradingPartnerId,
     pub name: String,
+    pub status: TradingPartnerStatus,
 }
 
 /// Reference to TradingPartner for foreign key relationships

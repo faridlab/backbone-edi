@@ -70,8 +70,8 @@ impl TradingPartnerRepository {
             pool,
             sqlx::query(
                 r#"INSERT INTO edi.trading_partners
-                     (id, company_id, name, partner_code, format, partner_direction, is_active)
-                   VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,true)"#,
+                     (id, company_id, name, partner_code, format, partner_direction, status)
+                   VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,'active')"#,
             )
             .bind(p.id).bind(p.company_id).bind(p.name).bind(p.partner_code)
             .bind(p.format).bind(p.partner_direction),

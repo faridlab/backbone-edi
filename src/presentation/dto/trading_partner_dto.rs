@@ -20,6 +20,7 @@ use crate::domain::entity::TradingPartner;
 use crate::domain::entity::AuditMetadata;
 use crate::domain::entity::EdiFormat;
 use crate::domain::entity::PartnerDirection;
+use crate::domain::entity::TradingPartnerStatus;
 
 // =============================================================================
 // Create DTO
@@ -45,9 +46,7 @@ pub struct CreateTradingPartnerDto {
     pub format: EdiFormat,
     #[serde(alias = "partner_direction")]
     pub partner_direction: PartnerDirection,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: TradingPartnerStatus,
 }
 
 // =============================================================================
@@ -74,9 +73,7 @@ pub struct UpdateTradingPartnerDto {
     pub format: EdiFormat,
     #[serde(alias = "partner_direction")]
     pub partner_direction: PartnerDirection,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: TradingPartnerStatus,
 }
 
 // =============================================================================
@@ -105,15 +102,14 @@ pub struct PatchTradingPartnerDto {
     pub format: Option<EdiFormat>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "partner_direction")]
     pub partner_direction: Option<PartnerDirection>,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "is_active")]
-    pub is_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<TradingPartnerStatus>,
 }
 
 impl PatchTradingPartnerDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.is_active.is_some()
+        self.company_id.is_some() || self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.status.is_some()
     }
 }
 
@@ -139,8 +135,7 @@ pub struct TradingPartnerResponseDto {
     pub partner_code: String,
     pub format: EdiFormat,
     pub partner_direction: PartnerDirection,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    pub is_active: bool,
+    pub status: TradingPartnerStatus,
     pub metadata: AuditMetadata,
 }
 
@@ -217,7 +212,7 @@ impl From<TradingPartner> for TradingPartnerResponseDto {
             partner_code: entity.partner_code,
             format: entity.format,
             partner_direction: entity.partner_direction,
-            is_active: entity.is_active,
+            status: entity.status,
             metadata: entity.metadata,
         }
     }
@@ -245,7 +240,7 @@ impl From<CreateTradingPartnerDto> for TradingPartner {
             partner_code: dto.partner_code,
             format: dto.format,
             partner_direction: dto.partner_direction,
-            is_active: dto.is_active,
+            status: dto.status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -260,7 +255,7 @@ impl From<&TradingPartner> for TradingPartnerResponseDto {
             partner_code: entity.partner_code.clone(),
             format: entity.format.clone(),
             partner_direction: entity.partner_direction.clone(),
-            is_active: entity.is_active.clone(),
+            status: entity.status.clone(),
             metadata: entity.metadata.clone(),
         }
     }
@@ -279,7 +274,7 @@ impl backbone_core::ApplyUpdateDto<UpdateTradingPartnerDto> for TradingPartner {
         self.partner_code = dto.partner_code;
         self.format = dto.format;
         self.partner_direction = dto.partner_direction;
-        self.is_active = dto.is_active;
+        self.status = dto.status;
         Ok(self)
     }
 }
@@ -292,4 +287,3 @@ impl backbone_core::ApplyUpdateDto<UpdateTradingPartnerDto> for TradingPartner {
 // Add custom DTOs specific to TradingPartner here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
-

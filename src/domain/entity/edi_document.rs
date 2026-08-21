@@ -72,7 +72,7 @@ pub struct EdiDocument {
 impl EdiDocument {
     /// Create a builder for EdiDocument
     pub fn builder() -> EdiDocumentBuilder {
-        EdiDocumentBuilder::default()
+        <EdiDocumentBuilder as Default>::default()
     }
 
     /// Create a new EdiDocument with required fields
@@ -406,7 +406,7 @@ impl EdiDocumentBuilder {
             direction,
             control_number,
             business_key,
-            status: self.status.unwrap_or(EdiStatus::default()),
+            status: self.status.unwrap_or_default(),
             payload,
             mapped_ref_type: self.mapped_ref_type,
             mapped_ref_id: self.mapped_ref_id,

@@ -9,6 +9,7 @@ pub mod edi_direction;
 pub mod edi_status;
 pub mod edi_format;
 pub mod partner_direction;
+pub mod trading_partner_status;
 
 // Re-exports
 pub use edi_document::EdiDocument;
@@ -22,6 +23,7 @@ pub use edi_direction::EdiDirection;
 pub use edi_status::EdiStatus;
 pub use edi_format::EdiFormat;
 pub use partner_direction::PartnerDirection;
+pub use trading_partner_status::TradingPartnerStatus;
 
 // ==========================================================================
 // Entity Trait

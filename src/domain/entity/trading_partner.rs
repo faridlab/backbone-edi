@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use super::EdiFormat;
 use super::PartnerDirection;
+use super::TradingPartnerStatus;
 use super::AuditMetadata;
 
 /// Strongly-typed ID for TradingPartner
@@ -56,7 +57,7 @@ pub struct TradingPartner {
     pub partner_code: String,
     pub format: EdiFormat,
     pub partner_direction: PartnerDirection,
-    pub is_active: bool,
+    pub status: TradingPartnerStatus,
     #[serde(default)]
     #[sqlx(json)]
     pub metadata: AuditMetadata,
@@ -65,11 +66,11 @@ pub struct TradingPartner {
 impl TradingPartner {
     /// Create a builder for TradingPartner
     pub fn builder() -> TradingPartnerBuilder {
-        TradingPartnerBuilder::default()
+        <TradingPartnerBuilder as Default>::default()
     }
 
     /// Create a new TradingPartner with required fields
-    pub fn new(company_id: Uuid, name: String, partner_code: String, format: EdiFormat, partner_direction: PartnerDirection, is_active: bool) -> Self {
+    pub fn new(company_id: Uuid, name: String, partner_code: String, format: EdiFormat, partner_direction: PartnerDirection, status: TradingPartnerStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -77,7 +78,7 @@ impl TradingPartner {
             partner_code,
             format,
             partner_direction,
-            is_active,
+            status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -132,6 +133,11 @@ impl TradingPartner {
         self.metadata.deleted_by.as_ref()
     }
 
+    /// Get the current status
+    pub fn status(&self) -> &TradingPartnerStatus {
+        &self.status
+    }
+
 
     // ==========================================================
     // Partial Update
@@ -156,8 +162,8 @@ impl TradingPartner {
                 "partner_direction" => {
                     if let Ok(v) = serde_json::from_value(value) { self.partner_direction = v; }
                 }
-                "is_active" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.is_active = v; }
+                "status" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.status = v; }
                 }
                 _ => {} // ignore unknown fields
             }
@@ -216,6 +222,7 @@ impl backbone_orm::EntityRepoMeta for TradingPartner {
         m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("format".to_string(), "edi_format".to_string());
         m.insert("partner_direction".to_string(), "partner_direction".to_string());
+        m.insert("status".to_string(), "trading_partner_status".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
@@ -237,7 +244,7 @@ pub struct TradingPartnerBuilder {
     partner_code: Option<String>,
     format: Option<EdiFormat>,
     partner_direction: Option<PartnerDirection>,
-    is_active: Option<bool>,
+    status: Option<TradingPartnerStatus>,
 }
 
 impl TradingPartnerBuilder {
@@ -271,9 +278,9 @@ impl TradingPartnerBuilder {
         self
     }
 
-    /// Set the is_active field (default: `true`)
-    pub fn is_active(mut self, value: bool) -> Self {
-        self.is_active = Some(value);
+    /// Set the status field (default: `TradingPartnerStatus::default()`)
+    pub fn status(mut self, value: TradingPartnerStatus) -> Self {
+        self.status = Some(value);
         self
     }
 
@@ -290,9 +297,9 @@ impl TradingPartnerBuilder {
             company_id,
             name,
             partner_code,
-            format: self.format.unwrap_or(EdiFormat::default()),
-            partner_direction: self.partner_direction.unwrap_or(PartnerDirection::default()),
-            is_active: self.is_active.unwrap_or(true),
+            format: self.format.unwrap_or_default(),
+            partner_direction: self.partner_direction.unwrap_or_default(),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

@@ -29,7 +29,7 @@ impl TestDataGenerator for TradingPartnerTestData {
             "partner_code": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
             "format": "custom_json",
             "partner_direction": "both",
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }
@@ -43,7 +43,7 @@ impl TestDataGenerator for TradingPartnerTestData {
             "partner_code": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
             "format": "custom_json",
             "partner_direction": "both",
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }

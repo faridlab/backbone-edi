@@ -969,7 +969,7 @@ components:
         - partner_code
         - format
         - partner_direction
-        - is_active
+        - status
         - metadata
       properties:
         id:
@@ -986,8 +986,8 @@ components:
           type: string
         partner_direction:
           type: string
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -1012,7 +1012,7 @@ components:
         - partner_code
         - format
         - partner_direction
-        - is_active
+        - status
         - metadata
       properties:
         company_id:
@@ -1026,8 +1026,8 @@ components:
           type: string
         partner_direction:
           type: string
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -1039,7 +1039,7 @@ components:
         - partner_code
         - format
         - partner_direction
-        - is_active
+        - status
         - metadata
       properties:
         company_id:
@@ -1053,8 +1053,8 @@ components:
           type: string
         partner_direction:
           type: string
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 
@@ -1072,8 +1072,8 @@ components:
           type: string
         partner_direction:
           type: string
-        is_active:
-          type: boolean
+        status:
+          type: string
         metadata:
           type: object
 

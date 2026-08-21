@@ -35,10 +35,11 @@ models:
         type: PartnerDirection
         attributes: ["@required", "@default(both)"]
         description: "Which directions we handle with this partner"
-      is_active:
-        type: boolean
-        attributes: ["@default(true)"]
-        description: "Only active partners exchange documents"
+      # replaces is_active (boolean flipped to lifecycle enum)
+      status:
+        type: TradingPartnerStatus
+        attributes: ["@default(active)"]
+        description: "Lifecycle (inactive partners stop exchanging documents; historical documents keep their partner reference)"
       metadata:
         type: Metadata
         attributes: ["@audit_metadata"]
@@ -71,3 +72,12 @@ enums:
         description: "We only receive from this partner"
       - name: outbound
         description: "We only send to this partner"
+
+  - name: TradingPartnerStatus
+    description: "Lifecycle of a trading partner"
+    variants:
+      - name: active
+        description: "Documents are exchanged with this partner"
+        default: true
+      - name: inactive
+        description: "No new exchanges; historical documents keep their partner reference"

@@ -37,4 +37,3 @@ async fn test_trading_partner_api() {
         panic!("{} tests failed", failed.len());
     }
 }
-

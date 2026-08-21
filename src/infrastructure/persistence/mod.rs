@@ -9,6 +9,10 @@ mod trading_partner_repository;
 
 // Custom persistence modules
 // <<< CUSTOM
+// The hand-written EDI SQL's parameter/projection types (see `edi_document_repository` and
+// `trading_partner_repository`, both declared `user_owned` in metaphor.codegen.yaml).
+pub use edi_document_repository::{AckRow, DocOutcomeRow, NewInboundDocRow};
+pub use trading_partner_repository::NewPartnerRow;
 // END CUSTOM
 
 // Re-exports
@@ -24,8 +28,4 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
-// The hand-written EDI SQL's parameter/projection types (see `edi_document_repository` and
-// `trading_partner_repository`, both declared `user_owned` in metaphor.codegen.yaml).
-pub use edi_document_repository::{AckRow, DocOutcomeRow, NewInboundDocRow};
-pub use trading_partner_repository::NewPartnerRow;
 // END CUSTOM
