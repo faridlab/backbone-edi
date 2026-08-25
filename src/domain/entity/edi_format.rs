@@ -13,6 +13,7 @@ pub enum EdiFormat {
     X12,
     Edifact,
     Csv,
+    UblBis3,
 }
 
 impl std::fmt::Display for EdiFormat {
@@ -22,6 +23,7 @@ impl std::fmt::Display for EdiFormat {
             Self::X12 => write!(f, "x12"),
             Self::Edifact => write!(f, "edifact"),
             Self::Csv => write!(f, "csv"),
+            Self::UblBis3 => write!(f, "ubl_bis3"),
         }
     }
 }
@@ -35,6 +37,7 @@ impl FromStr for EdiFormat {
             "x12" => Ok(Self::X12),
             "edifact" => Ok(Self::Edifact),
             "csv" => Ok(Self::Csv),
+            "ubl_bis3" => Ok(Self::UblBis3),
             _ => Err(format!("Unknown EdiFormat variant: {}", s)),
         }
     }

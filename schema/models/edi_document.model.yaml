@@ -47,8 +47,8 @@ models:
         description: "received → mapped → acknowledged (inbound) | generated → sent → acknowledged (outbound) | failed"
       payload:
         type: string
-        attributes: ["@required", "@length(max=20000)"]
-        description: "The raw document payload (EDI text / JSON)"
+        attributes: ["@required", "@length(max=200000)"]
+        description: "The raw document payload (EDI text / JSON / UBL XML)"
       mapped_ref_type:
         type: string?
         attributes: ["@length(max=60)", "@exclude_from_dto"]

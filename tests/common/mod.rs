@@ -74,10 +74,12 @@ impl MappingPort for RealSellingMapper {
             quantity: l.get("qty").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(Decimal::ONE),
             unit_price: l.get("price").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(Decimal::ZERO),
             line_discount: Decimal::ZERO,
+            invoice_policy: None,
+            is_downpayment: None,
         }).collect()).unwrap_or_default();
         let order = NewSalesOrder {
             order_number: format!("EDI-{}", req.control_number),
-            quotation_id: None, company_id: req.company_id, branch_id: None, customer_id,
+            quotation_id: None, delivery_carrier_id: None, company_id: req.company_id, branch_id: None, customer_id,
             order_date: chrono::Utc::now().date_naive(), delivery_date: None, currency: None,
             tax_rate: Decimal::ZERO, notes: Some("Created from inbound EDI PO".into()), lines,
         };

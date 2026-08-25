@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Required spine only: customization present, but every optional member absent (no UUID, notes,
+     delivery dates, parties, totals; no uom/price currency/base quantity/line amounts on lines). -->
+<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2"
+       xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+       xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:www.cenbii.eu:transaction:trns001:v2.0</cbc:CustomizationID>
+  <cbc:ID>PO-BARE-0001</cbc:ID>
+  <cbc:IssueDate>2026-08-24</cbc:IssueDate>
+  <cac:OrderLine>
+    <cac:LineItem>
+      <cbc:ID>1</cbc:ID>
+      <cbc:Quantity>3</cbc:Quantity>
+      <cac:Price>
+        <cbc:PriceAmount>1234.50</cbc:PriceAmount>
+      </cac:Price>
+      <cac:Item>
+        <cac:SellersItemIdentification>
+          <cbc:ID>SKU-BARE-01</cbc:ID>
+        </cac:SellersItemIdentification>
+      </cac:Item>
+    </cac:LineItem>
+  </cac:OrderLine>
+</Order>

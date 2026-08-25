@@ -14,6 +14,8 @@ user_owned:
   - "src/application/service/edi_events.rs"
   - "src/application/service/edi_ports.rs"
   - "src/application/service/edi_write_service.rs"
+  # Hand-authored UBL BIS 3 inbound-order parser (pure XML extraction — schema-derived nowhere).
+  - "src/application/service/ubl/**"
   # Own the hand-written EDI SQL (the partner registration, the inbound dedup claim + re-read, the
   # mapped/failed state transitions, the acknowledge CTE) that the write service orchestrates. Declared
   # here — not renamed with a `_custom` suffix — so the generator skips them wholesale; this declaration
@@ -23,6 +25,10 @@ user_owned:
   - "tests/edi_golden_cases.rs"
   - "tests/edi_selling_seam.rs"
   - "tests/integrity_probes.rs"
+  - "tests/ubl_parser_cases.rs"
+  - "tests/ubl_golden_cases.rs"
+  # Hand-crafted UBL fixture documents (minimal-but-valid XML, no XSD service, no network).
+  - "tests/fixtures/**"
   - "scripts/**"
   # Hand-authored behavior (services + their HTTP surface). Examples:
   # - "src/application/service/onboarding_service.rs"

@@ -8,7 +8,7 @@
 //! All standard CRUD methods are available via `Deref`.
 
 use anyhow::Result;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use backbone_orm::company_scope;
@@ -79,6 +79,42 @@ impl TradingPartnerRepository {
         .await?;
         Ok(())
     }
+
+    /// The partner facts a receive-path gate needs: declared wire `format`, handled
+    /// `partner_direction`, and lifecycle `status` — the company-scoped read that decides whether a
+    /// document may enter through this partner at all (e.g. the UBL path runs only when the partner
+    /// row declares `ubl_bis3` and is active and accepts inbound).
+    pub async fn fetch_partner_gate(
+        &self,
+        pool: &PgPool,
+        company_id: Uuid,
+        partner_id: Uuid,
+    ) -> Result<Option<PartnerGateRow>, sqlx::Error> {
+        let row = company_scope::fetch_optional_row_scoped(
+            pool,
+            sqlx::query(
+                r#"SELECT format::text AS format,
+                          partner_direction::text AS partner_direction,
+                          status::text AS status
+                   FROM edi.trading_partners WHERE company_id=$1 AND id=$2"#,
+            )
+            .bind(company_id).bind(partner_id),
+        )
+        .await?;
+        Ok(row.map(|r| PartnerGateRow {
+            format: r.get("format"),
+            partner_direction: r.get("partner_direction"),
+            status: r.get("status"),
+        }))
+    }
+}
+
+/// The partner-row facts the receive-path gate checks. Enum values as `text` — the gate compares
+/// contract strings, not the sqlx-typed enums.
+pub struct PartnerGateRow {
+    pub format: String,
+    pub partner_direction: String,
+    pub status: String,
 }
 
 backbone_core::impl_crud_repository!(TradingPartnerRepository, TradingPartner, soft_delete);

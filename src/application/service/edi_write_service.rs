@@ -17,6 +17,7 @@ use crate::infrastructure::persistence::{
 
 use super::edi_events::*;
 use super::edi_ports::*;
+use super::ubl::{self, UblRefusal};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EdiError {
@@ -30,6 +31,10 @@ pub enum EdiError {
     InvalidState(&'static str),
     #[error("mapping rejected: {0}")]
     MappingRejected(String),
+    /// A UBL document was refused before it could enter the exchange. Carries the joined refusal
+    /// detail line (stable codes + locators) — nothing was persisted for it.
+    #[error("ubl refused: {0}")]
+    UblRefused(String),
 }
 
 pub struct NewPartner {
@@ -114,6 +119,200 @@ impl EdiWriteService {
         mapper: &dyn MappingPort,
         events: &dyn EdiEventSink,
     ) -> Result<ReceiveOutcome, EdiError> {
+        self.claim_and_settle(d, mapper, events).await
+    }
+
+    /// Receive an inbound UBL BIS 3 order (raw XML bytes). The DECLARED partner row — never payload
+    /// sniffing — selects the UBL path: the partner must be active, handle inbound, and declare
+    /// `format='ubl_bis3'`. Flow:
+    ///
+    /// - Oversized or structurally refused document with no usable business key (`cbc:ID` absent,
+    ///   empty, or over the column budget) → `Err(EdiError::UblRefused(..))`. Nothing persisted, no
+    ///   events — a retransmission re-parses cleanly (idempotent by construction).
+    /// - Structurally refused document WITH a usable business key → the durable negative-ack path:
+    ///   the dedup slot is claimed, the row is recorded `failed` with the joined refusal codes, and
+    ///   `EdiDocumentFailed` is staged/published — the partner gets a real negative functional ack
+    ///   through the existing `acknowledge` surface.
+    /// - Valid document → the shared idempotent claim/settle core (same one
+    ///   [`Self::receive_document`] runs): business key = `cbc:ID` (the buyer's order number),
+    ///   control number = `cbc:UUID` when present else `cbc:ID` (UBL has no envelope control
+    ///   number — the instance UUID stands in), payload = the canonical parsed contract.
+    pub async fn receive_ubl_order(
+        &self,
+        company_id: Uuid,
+        partner_id: Uuid,
+        raw: &str,
+        mapper: &dyn MappingPort,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
+        // Partner gate — typed refusals, nothing persisted.
+        let gate = company_scope::with_company_scope(
+            Some(company_id),
+            self.partners.fetch_partner_gate(&self.pool, company_id, partner_id),
+        )
+        .await?;
+        let Some(gate) = gate else {
+            return Err(EdiError::NotFound("trading partner"));
+        };
+        if gate.status != "active" {
+            return Err(EdiError::Invalid(format!("trading partner {partner_id} is not active")));
+        }
+        if gate.partner_direction != "inbound" && gate.partner_direction != "both" {
+            return Err(EdiError::Invalid(format!(
+                "trading partner {partner_id} does not accept inbound documents (direction: {})",
+                gate.partner_direction
+            )));
+        }
+        if gate.format != "ubl_bis3" {
+            return Err(EdiError::Invalid(format!(
+                "trading partner {partner_id} does not declare ubl_bis3 (found: {})",
+                gate.format
+            )));
+        }
+
+        // Size guard — refuses before any parsing or persistence.
+        if raw.len() > ubl::MAX_XML_BYTES {
+            return Err(EdiError::UblRefused(
+                ubl::too_large_refusal(raw.len(), ubl::MAX_XML_BYTES).detail_line(),
+            ));
+        }
+
+        match ubl::parse_ubl_order(raw) {
+            Ok(order) => {
+                let control_number = order
+                    .document_uuid
+                    .clone()
+                    .unwrap_or_else(|| order.document_id.clone());
+                let d = InboundDoc {
+                    company_id,
+                    partner_id,
+                    doc_type: "purchase_order".into(),
+                    control_number,
+                    business_key: order.document_id.clone(),
+                    raw: raw.to_string(),
+                    payload: ubl::to_payload(&order),
+                };
+                self.claim_and_settle(d, mapper, events).await
+            }
+            Err(refusal) => match refusal.business_key.clone() {
+                None => Err(EdiError::UblRefused(refusal.detail_line())),
+                Some(business_key) => self.record_ubl_refusal(company_id, partner_id, &business_key, raw, &refusal, events).await,
+            },
+        }
+    }
+
+    /// Durable negative-ack for a refused-but-identifiable UBL document: claim the dedup slot on
+    /// the refused document's own business key, then record `failed` with the joined refusal
+    /// detail. On a losing claim (a prior copy exists) the row re-drives when it never completed
+    /// mapping, so a corrected retransmission after a negative ack can still land; settled rows
+    /// return their stored outcome untouched.
+    async fn record_ubl_refusal(
+        &self,
+        company_id: Uuid,
+        partner_id: Uuid,
+        business_key: &str,
+        raw: &str,
+        refusal: &UblRefusal,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
+        // No envelope control number survives a refused parse — the business key stands in for the
+        // audit column (the dedup is on business_key; control_number is display/audit only).
+        let inserted: Option<Uuid> = company_scope::with_company_scope(
+            Some(company_id),
+            self.documents.claim_inbound(&self.pool, &NewInboundDocRow {
+                id: Uuid::new_v4(),
+                company_id,
+                partner_id,
+                doc_type: "purchase_order",
+                control_number: business_key,
+                business_key,
+                raw,
+            }),
+        )
+        .await?;
+
+        let document_id = match inserted {
+            Some(id) => id,
+            None => {
+                let row = company_scope::with_company_scope(
+                    Some(company_id),
+                    self.documents.fetch_inbound_by_business_key(&self.pool, partner_id, business_key),
+                )
+                .await?;
+                if Self::redrivable(&row) {
+                    let reset = company_scope::with_company_scope(
+                        Some(company_id),
+                        self.documents.reset_for_redrive(&self.pool, row.id, business_key, raw),
+                    )
+                    .await?;
+                    if reset {
+                        return self.record_parse_failure(company_id, partner_id, row.id, business_key, refusal, events).await;
+                    }
+                }
+                return Ok(ReceiveOutcome {
+                    document_id: row.id,
+                    status: row.status,
+                    mapped_ref_id: row.mapped_ref_id,
+                    duplicate: true,
+                });
+            }
+        };
+        self.record_parse_failure(company_id, partner_id, document_id, business_key, refusal, events)
+            .await
+    }
+
+    /// Record `failed` + the staged `EdiDocumentFailed` for a refused document (never calls the
+    /// mapper — there is nothing mappable). The event is staged/published only when the guarded
+    /// UPDATE actually transitioned the row, so racing re-drives cannot double-emit.
+    async fn record_parse_failure(
+        &self,
+        company_id: Uuid,
+        partner_id: Uuid,
+        document_id: Uuid,
+        control_number: &str,
+        refusal: &UblRefusal,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
+        let reason = refusal.errors.first().map(|e| e.code).unwrap_or("ubl_refused");
+        let event = EdiEvent::EdiDocumentFailed {
+            document_id,
+            company_id,
+            partner_id,
+            control_number: control_number.to_string(),
+            reason: reason.to_string(),
+        };
+        let mut tx = self.pool.begin().await?;
+        // RLS scope (ADR-0008): bind this document's own company onto the tx (the outbox stage
+        // rides it too).
+        company_scope::bind_company_on(&mut tx, company_id).await?;
+        let settled = self.documents.mark_failed(&mut tx, document_id, &refusal.detail_line()).await?;
+        if settled {
+            stage(&mut tx, &event).await?;
+        }
+        tx.commit().await?;
+        if settled {
+            events.publish(&event);
+        }
+        Ok(ReceiveOutcome { document_id, status: "failed".into(), mapped_ref_id: None, duplicate: false })
+    }
+
+    /// A stored inbound row may re-drive when it never completed mapping: crash-stranded
+    /// `received` with no mapped_ref, or any prior `failed` (a refusal). Settled rows
+    /// (`mapped`/`acknowledged`) never do — `acknowledged` stays terminal, so a correction after a
+    /// negative ack must arrive under a new business key.
+    fn redrivable(row: &crate::infrastructure::persistence::DocOutcomeRow) -> bool {
+        (row.status == "received" || row.status == "failed") && row.mapped_ref_id.is_none()
+    }
+
+    /// The shared inbound core: validate the envelope fields, claim the (partner, inbound,
+    /// business_key) dedup slot, and settle. A losing claim re-drives when the stored row never
+    /// completed mapping; otherwise it returns the stored outcome with `duplicate=true`.
+    async fn claim_and_settle(
+        &self,
+        d: InboundDoc,
+        mapper: &dyn MappingPort,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
         if d.control_number.trim().is_empty() {
             return Err(EdiError::Invalid("an inbound document needs a control number".into()));
         }
@@ -149,18 +348,47 @@ impl EdiWriteService {
                 self.documents.fetch_inbound_by_business_key(&self.pool, d.partner_id, &d.business_key),
             )
             .await?;
+            // Re-drive: a retransmission against a row that never completed mapping — crash-stranded
+            // between map and mark, or any prior refusal — settles now instead of returning a bare
+            // duplicate. The re-drive's MapRequest carries the SAME idempotency_key (the document id),
+            // so the target hands back the same internal_ref_id it already created: no duplicate order.
+            if Self::redrivable(&row) {
+                let reset = company_scope::with_company_scope(
+                    Some(company),
+                    self.documents.reset_for_redrive(&self.pool, row.id, &d.control_number, &d.raw),
+                )
+                .await?;
+                if reset {
+                    return self.settle_inbound(&d, row.id, mapper, events).await;
+                }
+            }
             return Ok(ReceiveOutcome {
                 document_id: row.id, status: row.status,
                 mapped_ref_id: row.mapped_ref_id, duplicate: true,
             });
         };
 
-        // Map to an internal document via the target module (external — creates a real sales order/invoice).
+        self.settle_inbound(&d, document_id, mapper, events).await
+    }
+
+    /// Map a claimed document to an internal one via the target module (external — creates a real
+    /// sales order/invoice) and record the outcome. Shared by the fresh-claim path and the
+    /// re-drive path. The lifecycle event is staged in the SAME tx as the status UPDATE (durable)
+    /// and published after commit — but only when the guarded UPDATE actually transitioned the
+    /// row, which kills the duplicate event under racing re-drives.
+    async fn settle_inbound(
+        &self,
+        d: &InboundDoc,
+        document_id: Uuid,
+        mapper: &dyn MappingPort,
+        events: &dyn EdiEventSink,
+    ) -> Result<ReceiveOutcome, EdiError> {
         let req = MapRequest {
             company_id: d.company_id, partner_id: d.partner_id, doc_type: d.doc_type.clone(),
             control_number: d.control_number.clone(), idempotency_key: document_id.to_string(),
             payload: d.payload.clone(),
         };
+        let company = d.company_id;
         match mapper.map(&req).await {
             Ok(ack) => {
                 let event = EdiEvent::EdiDocumentMapped(EdiDocumentMapped {
@@ -172,11 +400,18 @@ impl EdiWriteService {
                 // RLS scope (ADR-0008): bind this document's own company onto the tx (the outbox stage
                 // rides it too).
                 company_scope::bind_company_on(&mut tx, company).await?;
-                self.documents
+                let settled = self
+                    .documents
                     .mark_mapped(&mut tx, document_id, &ack.internal_ref_type, ack.internal_ref_id)
                     .await?;
-                stage(&mut tx, &event).await?;
+                if settled {
+                    stage(&mut tx, &event).await?;
+                }
                 tx.commit().await?;
+                if !settled {
+                    // A racing re-drive settled this row first — report the stored state, no second event.
+                    return self.stored_outcome_for(company, d.partner_id, &d.business_key).await;
+                }
                 events.publish(&event);
                 Ok(ReceiveOutcome { document_id, status: "mapped".into(), mapped_ref_id: Some(ack.internal_ref_id), duplicate: false })
             }
@@ -188,13 +423,36 @@ impl EdiWriteService {
                 let mut tx = self.pool.begin().await?;
                 // RLS scope (ADR-0008): bind this document's own company onto the tx.
                 company_scope::bind_company_on(&mut tx, company).await?;
-                self.documents.mark_failed(&mut tx, document_id, &rej.message).await?;
-                stage(&mut tx, &event).await?;
+                let settled = self.documents.mark_failed(&mut tx, document_id, &rej.message).await?;
+                if settled {
+                    stage(&mut tx, &event).await?;
+                }
                 tx.commit().await?;
+                if !settled {
+                    return self.stored_outcome_for(company, d.partner_id, &d.business_key).await;
+                }
                 events.publish(&event);
                 Ok(ReceiveOutcome { document_id, status: "failed".into(), mapped_ref_id: None, duplicate: false })
             }
         }
+    }
+
+    /// Re-read a stored row after losing a guarded transition to a racing writer.
+    async fn stored_outcome_for(
+        &self,
+        company: Uuid,
+        partner_id: Uuid,
+        business_key: &str,
+    ) -> Result<ReceiveOutcome, EdiError> {
+        let row = company_scope::with_company_scope(
+            Some(company),
+            self.documents.fetch_inbound_by_business_key(&self.pool, partner_id, business_key),
+        )
+        .await?;
+        Ok(ReceiveOutcome {
+            document_id: row.id, status: row.status,
+            mapped_ref_id: row.mapped_ref_id, duplicate: false,
+        })
     }
 
     /// Issue a functional acknowledgement to the partner for a mapped/failed document. Idempotent

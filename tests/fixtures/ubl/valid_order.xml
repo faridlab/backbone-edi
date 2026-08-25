@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2"
+       xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+       xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:www.cenbii.eu:transaction:biitrns001:ver2.0:extended:urn:www.peppol.eu:bis:peppol28a:ver1.0</cbc:CustomizationID>
+  <cbc:ProfileID>urn:www.cenbii.eu:profile:bii28:ver2.0</cbc:ProfileID>
+  <cbc:ID>PO-2026-1001</cbc:ID>
+  <cbc:UUID>6b7c8d9e-0f1a-2b3c-4d5e-6f7a8b9c0d1e</cbc:UUID>
+  <cbc:IssueDate>2026-08-25</cbc:IssueDate>
+  <cbc:IssueTime>10:30:00</cbc:IssueTime>
+  <cbc:DocumentCurrencyCode>IDR</cbc:DocumentCurrencyCode>
+  <cbc:BuyerReference>BUYER-REF-77</cbc:BuyerReference>
+  <cbc:Note>Please deliver before Friday</cbc:Note>
+  <cac:Delivery>
+    <cbc:RequestedDeliveryDate>2026-09-01</cbc:RequestedDeliveryDate>
+  </cac:Delivery>
+  <cac:BuyerCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="GLN">1234567890123</cbc:EndpointID>
+      <cac:PartyIdentification>
+        <cbc:ID schemeID="CO">BUYER-CO-001</cbc:ID>
+      </cac:PartyIdentification>
+      <cac:PartyName>
+        <cbc:Name>Buyer Retail Group</cbc:Name>
+      </cac:PartyName>
+    </cac:Party>
+  </cac:BuyerCustomerParty>
+  <cac:SellerSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID schemeID="CO">SELLER-CO-001</cbc:ID>
+      </cac:PartyIdentification>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Acme Supplies</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:SellerSupplierParty>
+  <cac:AnticipatedMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="IDR">25000.10</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="IDR">25000.10</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="IDR">27500.11</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="IDR">27500.11</cbc:PayableAmount>
+  </cac:AnticipatedMonetaryTotal>
+  <cac:OrderLine>
+    <cac:LineItem>
+      <cbc:ID>1</cbc:ID>
+      <cbc:Quantity unitCode="EA">2</cbc:Quantity>
+      <cbc:LineExtensionAmount currencyID="IDR">12500.00</cbc:LineExtensionAmount>
+      <cac:Delivery>
+        <cbc:RequestedDeliveryDate>2026-09-01</cbc:RequestedDeliveryDate>
+      </cac:Delivery>
+      <cac:Price>
+        <cbc:PriceAmount currencyID="IDR">12500.00</cbc:PriceAmount>
+        <cbc:BaseQuantity unitCode="EA">1</cbc:BaseQuantity>
+      </cac:Price>
+      <cac:Item>
+        <cbc:Description>Widget, industrial grade</cbc:Description>
+        <cbc:Name>Industrial Widget</cbc:Name>
+        <cac:SellersItemIdentification>
+          <cbc:ID>SKU-001</cbc:ID>
+        </cac:SellersItemIdentification>
+        <cac:StandardItemIdentification>
+          <cbc:ID>12345678901234</cbc:ID>
+        </cac:StandardItemIdentification>
+      </cac:Item>
+    </cac:LineItem>
+  </cac:OrderLine>
+  <cac:OrderLine>
+    <cac:LineItem>
+      <cbc:ID>2</cbc:ID>
+      <cbc:Quantity unitCode="EA">1</cbc:Quantity>
+      <cbc:LineExtensionAmount currencyID="IDR">0.1</cbc:LineExtensionAmount>
+      <cac:Price>
+        <cbc:PriceAmount currencyID="IDR">0.1</cbc:PriceAmount>
+      </cac:Price>
+      <cac:Item>
+        <cbc:Name>GTIN-only Gadget</cbc:Name>
+        <cac:StandardItemIdentification>
+          <cbc:ID>98765432109876</cbc:ID>
+        </cac:StandardItemIdentification>
+      </cac:Item>
+    </cac:LineItem>
+  </cac:OrderLine>
+</Order>

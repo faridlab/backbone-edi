@@ -50,11 +50,14 @@ pub struct NewInboundDocRow<'a> {
     pub raw: &'a str,
 }
 
-/// A redelivered document's current state, as seen by the dedup re-read.
+/// A redelivered document's current state, as seen by the dedup re-read. Carries the full row the
+/// re-drive path needs (control number + stored payload), not just the outcome triple.
 pub struct DocOutcomeRow {
     pub id: Uuid,
     pub status: String,
     pub mapped_ref_id: Option<Uuid>,
+    pub control_number: String,
+    pub payload: String,
 }
 
 /// The pre-update state captured by the acknowledge CTE — carries the 997 polarity the consumer
@@ -104,7 +107,8 @@ impl EdiDocumentRepository {
         let row = company_scope::fetch_one_row_scoped(
             pool,
             sqlx::query(
-                r#"SELECT id, status::text AS status, mapped_ref_id FROM edi.edi_documents
+                r#"SELECT id, status::text AS status, mapped_ref_id, control_number, payload
+                   FROM edi.edi_documents
                    WHERE partner_id=$1 AND direction='inbound'::edi_direction AND business_key=$2"#,
             )
             .bind(partner_id).bind(business_key),
@@ -112,47 +116,82 @@ impl EdiDocumentRepository {
         .await?;
         Ok(DocOutcomeRow {
             id: row.get("id"), status: row.get("status"), mapped_ref_id: row.get("mapped_ref_id"),
+            control_number: row.get("control_number"), payload: row.get("payload"),
         })
     }
 
-    /// Record a successful mapping to an internal document. State-guarded on `received`.
+    /// Record a successful mapping to an internal document. State-guarded on `received` (a fresh
+    /// claim) or `failed` (a re-drive that was just reset back to `received`, or racing one).
     ///
     /// Takes the CALLER'S connection so this and the outbox stage commit as one unit. The caller has
     /// already bound the company on it (`bind_company_on`) — don't re-bind here.
+    ///
+    /// Returns rows-affected: the caller stages/publishes its outbox event ONLY on `true`, which
+    /// kills the duplicate event when two retransmissions race the same re-drive.
     pub async fn mark_mapped(
         &self,
         conn: &mut sqlx::PgConnection,
         document_id: Uuid,
         mapped_ref_type: &str,
         mapped_ref_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<bool, sqlx::Error> {
+        let res = sqlx::query(
             r#"UPDATE edi.edi_documents
-               SET status='mapped'::edi_status, mapped_ref_type=$2, mapped_ref_id=$3
-               WHERE id=$1 AND status='received'::edi_status"#,
+               SET status='mapped'::edi_status, mapped_ref_type=$2, mapped_ref_id=$3, error_detail=NULL
+               WHERE id=$1 AND status IN ('received'::edi_status,'failed'::edi_status)"#,
         )
         .bind(document_id).bind(mapped_ref_type).bind(mapped_ref_id)
         .execute(conn)
         .await?;
-        Ok(())
+        Ok(res.rows_affected() == 1)
     }
 
-    /// Record a mapping rejection. State-guarded on `received`. Same caller-owned-tx contract as
-    /// [`Self::mark_mapped`].
+    /// Record a mapping rejection. State-guarded on `received`. Same caller-owned-tx contract and
+    /// rows-affected semantics as [`Self::mark_mapped`].
     pub async fn mark_failed(
         &self,
         conn: &mut sqlx::PgConnection,
         document_id: Uuid,
         error_detail: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<bool, sqlx::Error> {
+        let res = sqlx::query(
             r#"UPDATE edi.edi_documents SET status='failed'::edi_status, error_detail=$2
                WHERE id=$1 AND status='received'::edi_status"#,
         )
         .bind(document_id).bind(error_detail)
         .execute(conn)
         .await?;
-        Ok(())
+        Ok(res.rows_affected() == 1)
+    }
+
+    /// Re-open a document that never completed mapping — crash-stranded `received` with no
+    /// mapped_ref, or any prior `failed` — so a retransmission can settle it. Refreshes the stored
+    /// envelope from the incoming copy. `false` = the row is settled (`mapped`/`acknowledged`, or
+    /// already re-driven past the guard): the caller must return the stored outcome untouched.
+    ///
+    /// Runs on the pool, company-scoped by the caller (`with_company_scope`) — the UPDATE must pass
+    /// the RLS WITH CHECK fence like every other write.
+    pub async fn reset_for_redrive(
+        &self,
+        pool: &PgPool,
+        document_id: Uuid,
+        incoming_control_number: &str,
+        incoming_raw: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let res = company_scope::execute_scoped(
+            pool,
+            sqlx::query(
+                r#"UPDATE edi.edi_documents
+                   SET status='received'::edi_status, control_number=$2, payload=$3,
+                       error_detail=NULL, mapped_ref_type=NULL, mapped_ref_id=NULL
+                   WHERE id=$1
+                     AND status IN ('received'::edi_status,'failed'::edi_status)
+                     AND mapped_ref_id IS NULL"#,
+            )
+            .bind(document_id).bind(incoming_control_number).bind(incoming_raw),
+        )
+        .await?;
+        Ok(res.rows_affected() == 1)
     }
 
     /// Acknowledge a mapped/failed document, returning its PRE-update state. Idempotent: `Ok(None)` when

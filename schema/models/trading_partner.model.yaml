@@ -61,6 +61,8 @@ enums:
         description: "UN/EDIFACT"
       - name: csv
         description: "A flat CSV layout"
+      - name: ubl_bis3
+        description: "OASIS UBL 2.1 BIS 3.0 order XML (inbound order import only)"
 
   - name: PartnerDirection
     description: "Directions handled with a partner"

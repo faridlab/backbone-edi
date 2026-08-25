@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A hand-rolled sender's minimal order: no cbc:CustomizationID (accepted with a recorded
+     warning), no UUID, no optional extras — only the required spine. -->
+<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2"
+       xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+       xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>PO-MIN-0001</cbc:ID>
+  <cbc:IssueDate>2026-08-25</cbc:IssueDate>
+  <cac:OrderLine>
+    <cac:LineItem>
+      <cbc:ID>1</cbc:ID>
+      <cbc:Quantity unitCode="EA">10</cbc:Quantity>
+      <cac:Price>
+        <cbc:PriceAmount currencyID="IDR">500</cbc:PriceAmount>
+      </cac:Price>
+      <cac:Item>
+        <cbc:Name>Spare Part</cbc:Name>
+        <cac:SellersItemIdentification>
+          <cbc:ID>SKU-MIN-01</cbc:ID>
+        </cac:SellersItemIdentification>
+      </cac:Item>
+    </cac:LineItem>
+  </cac:OrderLine>
+</Order>

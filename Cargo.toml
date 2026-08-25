@@ -1,6 +1,6 @@
 [package]
 name = "backbone-edi"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 description = "Backbone Framework EDI module — B2B document interchange (trading partners and EDI documents)"
 
@@ -34,6 +34,10 @@ chrono = { version = "0.4", features = ["serde"] }
 # Money/quantities — near-universal in domain modules. Generated code for any `decimal`
 # field imports rust_decimal, so ship it (and the matching sqlx feature) by default.
 rust_decimal = { version = "1.36", features = ["serde"] }
+# XML DOM for the UBL BIS 3 inbound-order parser — real namespace resolution + node text
+# positions (refusal errors carry line numbers) at bounded document sizes; zero dependencies,
+# no external entity resolution (no XXE surface), UTF-8 input only.
+roxmltree = "0.21"
 
 # Database (PostgreSQL primary)
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "rust_decimal"] }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Order xmlns="urn:oasis:names:specification:ubl:schema:xsd:Order-2"
+       xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+       xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>PO-BADCCY-1</cbc:ID>
+  <cbc:IssueDate>2026-08-25</cbc:IssueDate>
+  <cbc:DocumentCurrencyCode>rp</cbc:DocumentCurrencyCode>
+  <cac:OrderLine>
+    <cac:LineItem>
+      <cbc:ID>1</cbc:ID>
+      <cbc:Quantity>2</cbc:Quantity>
+      <cac:Price><cbc:PriceAmount>10</cbc:PriceAmount></cac:Price>
+      <cac:Item><cac:SellersItemIdentification><cbc:ID>SKU-1</cbc:ID></cac:SellersItemIdentification></cac:Item>
+    </cac:LineItem>
+  </cac:OrderLine>
+</Order>
