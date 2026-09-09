@@ -1,6 +1,6 @@
 [package]
 name = "backbone-edi"
-version = "0.6.4"
+version = "0.7.0"
 edition = "2021"
 description = "Backbone Framework EDI module — B2B document interchange (trading partners and EDI documents)"
 
@@ -38,6 +38,11 @@ rust_decimal = { version = "1.36", features = ["serde"] }
 # positions (refusal errors carry line numbers) at bounded document sizes; zero dependencies,
 # no external entity resolution (no XXE surface), UTF-8 input only.
 roxmltree = "0.21"
+
+# OpenAPI schema derive. The schema generator emits ungated `use utoipa::ToSchema;`
+# in every entity and DTO file, so the dep is unconditional even though the
+# `derive(ToSchema)` itself is feature-gated to `openapi`.
+utoipa = { version = "5", features = ["chrono", "uuid"] }
 
 # Database (PostgreSQL primary)
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "rust_decimal"] }
