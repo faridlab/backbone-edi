@@ -2,6 +2,11 @@
 //! genuine sales order via the `MappingPort` implemented over REAL selling. Proves the exchange lands a
 //! real internal document. ZERO normal Cargo edge — selling is reached through the port, a dev-dependency
 //! only in the test.
+//!
+//! Tenancy (ADR-0029): the edi side of the seam is tenant-agnostic. Selling is still a company-fenced
+//! sibling, so the seam keeps the port contract's explicit `company_id` on `MapRequest` — the edi write
+//! service fills it from the ambient org scope's legacy company (fail-closed), which is why every probe
+//! below wraps its writes in the scoped helper.
 
 mod common;
 use common::*;
@@ -16,26 +21,27 @@ use uuid::Uuid;
 #[tokio::test]
 async fn eseam1_inbound_po_becomes_real_sales_order() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
     let mapper = RealSellingMapper::new(pool.clone());
     let sink = CapturingSink::new();
 
-    let partner_id = svc.create_partner(NewPartner {
-        company_id: company, name: "Acme Retail".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
-        format: "custom_json".into(), partner_direction: "inbound".into(),
-    }).await.unwrap();
-
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
     let control = format!("PO-{}", Uuid::new_v4());
-    let out = svc.receive_document(InboundDoc {
-        company_id: company, partner_id, doc_type: "purchase_order".into(), control_number: control.clone(), business_key: control.clone(),
-        raw: "ISA*...".into(),
-        payload: json!({"customer_id": customer.to_string(), "lines": [
-            {"item_id": item.to_string(), "qty": "5", "price": "20000"}
-        ]}),
-    }, &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        let partner_id = svc.create_partner(NewPartner {
+            name: "Acme Retail".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
+            format: "custom_json".into(), partner_direction: "inbound".into(),
+        }).await.unwrap();
+
+        svc.receive_document(InboundDoc {
+            partner_id, doc_type: "purchase_order".into(), control_number: control.clone(), business_key: control.clone(),
+            raw: "ISA*...".into(),
+            payload: json!({"customer_id": customer.to_string(), "lines": [
+                {"item_id": item.to_string(), "qty": "5", "price": "20000"}
+            ]}),
+        }, &mapper, &sink).await.unwrap()
+    }).await;
 
     assert_eq!(out.status, "mapped");
     let order_id = out.mapped_ref_id.expect("mapped to a sales order");
@@ -106,6 +112,7 @@ impl MappingPort for UblSellingMapper {
             order_number: format!("UBL-{business_key}"),
             quotation_id: None,
             delivery_carrier_id: None,
+            // The port contract keeps the owning tenant: selling is still a company-fenced sibling.
             company_id: req.company_id,
             branch_id: None,
             customer_id: self.customer_id,
@@ -128,13 +135,7 @@ impl MappingPort for UblSellingMapper {
 #[tokio::test]
 async fn useam1_canonical_ubl_payload_creates_real_sales_order() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = svc.create_partner(NewPartner {
-        company_id: company, name: "BIS3 Buyer".into(), partner_code: format!("BIS3-{}", Uuid::new_v4()),
-        format: "ubl_bis3".into(), partner_direction: "inbound".into(),
-    }).await.unwrap();
-
     let customer = Uuid::new_v4();
     let item = Uuid::new_v4();
     let mapper = UblSellingMapper {
@@ -146,9 +147,15 @@ async fn useam1_canonical_ubl_payload_creates_real_sales_order() {
 
     // selling.sales_orders.order_number is unique GLOBALLY (not per company), so the business key
     // carries a per-run suffix to survive repeated executions against the same database.
-    let business_key = format!("PO-USEAM-{}", &company.to_string()[..8]);
+    let business_key = format!("PO-USEAM-{}", &Uuid::new_v4().to_string()[..8]);
     let raw = include_str!("fixtures/ubl/valid_order.xml").replace("PO-2026-1001", &business_key);
-    let out = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        let partner_id = svc.create_partner(NewPartner {
+            name: "BIS3 Buyer".into(), partner_code: format!("BIS3-{}", Uuid::new_v4()),
+            format: "ubl_bis3".into(), partner_direction: "inbound".into(),
+        }).await.unwrap();
+        svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "mapped");
     let order_id = out.mapped_ref_id.expect("mapped to a sales order");
 

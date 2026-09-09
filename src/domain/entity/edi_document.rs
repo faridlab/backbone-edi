@@ -52,7 +52,6 @@ impl std::ops::Deref for EdiDocumentId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct EdiDocument {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub partner_id: Uuid,
     pub doc_type: EdiDocType,
     pub direction: EdiDirection,
@@ -76,10 +75,9 @@ impl EdiDocument {
     }
 
     /// Create a new EdiDocument with required fields
-    pub fn new(company_id: Uuid, partner_id: Uuid, doc_type: EdiDocType, direction: EdiDirection, control_number: String, business_key: String, status: EdiStatus, payload: String) -> Self {
+    pub fn new(partner_id: Uuid, doc_type: EdiDocType, direction: EdiDirection, control_number: String, business_key: String, status: EdiStatus, payload: String) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             partner_id,
             doc_type,
             direction,
@@ -187,9 +185,6 @@ impl EdiDocument {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "partner_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.partner_id = v; }
                 }
@@ -277,7 +272,6 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("partner_id".to_string(), "uuid".to_string());
         m.insert("mapped_ref_id".to_string(), "uuid".to_string());
         m.insert("doc_type".to_string(), "edi_doc_type".to_string());
@@ -288,9 +282,6 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
     fn search_fields() -> &'static [&'static str] {
         &["control_number", "business_key", "payload"]
     }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
-    }
 }
 
 /// Builder for EdiDocument entity
@@ -299,7 +290,6 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct EdiDocumentBuilder {
-    company_id: Option<Uuid>,
     partner_id: Option<Uuid>,
     doc_type: Option<EdiDocType>,
     direction: Option<EdiDirection>,
@@ -314,12 +304,6 @@ pub struct EdiDocumentBuilder {
 }
 
 impl EdiDocumentBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the partner_id field (required)
     pub fn partner_id(mut self, value: Uuid) -> Self {
         self.partner_id = Some(value);
@@ -390,7 +374,6 @@ impl EdiDocumentBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<EdiDocument, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let partner_id = self.partner_id.ok_or_else(|| "partner_id is required".to_string())?;
         let doc_type = self.doc_type.ok_or_else(|| "doc_type is required".to_string())?;
         let direction = self.direction.ok_or_else(|| "direction is required".to_string())?;
@@ -400,7 +383,6 @@ impl EdiDocumentBuilder {
 
         Ok(EdiDocument {
             id: Uuid::new_v4(),
-            company_id,
             partner_id,
             doc_type,
             direction,

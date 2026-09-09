@@ -44,7 +44,6 @@ pub struct EdiDocumentPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct EdiDocumentFilter {
-    pub company_id: Option<Uuid>,
     pub partner_id: Option<Uuid>,
     pub doc_type: Option<EdiDocType>,
     pub direction: Option<EdiDirection>,
@@ -60,7 +59,7 @@ pub struct EdiDocumentFilter {
 impl EdiDocumentFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.partner_id.is_some() || self.doc_type.is_some() || self.direction.is_some() || self.control_number.is_some() || self.business_key.is_some() || self.status.is_some() || self.payload.is_some() || self.mapped_ref_type.is_some() || self.mapped_ref_id.is_some() || self.error_detail.is_some()
+        self.partner_id.is_some() || self.doc_type.is_some() || self.direction.is_some() || self.control_number.is_some() || self.business_key.is_some() || self.status.is_some() || self.payload.is_some() || self.mapped_ref_type.is_some() || self.mapped_ref_id.is_some() || self.error_detail.is_some()
     }
 }
 

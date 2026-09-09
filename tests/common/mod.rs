@@ -1,5 +1,6 @@
-//! Shared test helpers: a live pool, a fake mapper (records / can reject), a REAL backbone-selling mapper
-//! (maps an inbound PO to a genuine sales order), and a capturing event sink.
+//! Shared test helpers: a live pool, a scoped-request wrapper, a fake mapper (records / can reject),
+//! a REAL backbone-selling mapper (maps an inbound PO to a genuine sales order), and a capturing
+//! event sink.
 
 #![allow(dead_code)]
 
@@ -7,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use backbone_edi::application::service::edi_events::{EdiEvent, EdiEventSink};
 use backbone_edi::application::service::edi_ports::{MapAck, MapRejected, MapRequest, MappingPort};
+use backbone_orm::org_scope::{with_org_request_scope, OrgScope};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -16,6 +18,15 @@ pub fn dburl() -> String {
 }
 pub async fn pool() -> PgPool {
     PgPool::connect(&dburl()).await.expect("connect")
+}
+
+/// Run `f` as a scoped request over a one-node org whose unit is its own company — the minimal
+/// stand-in for the composing service's scope-resolving auth middleware. The durable-event path
+/// needs it: the outbox is a still-company-keyed surface, so every real write names an owner.
+pub async fn scoped<R, F: std::future::Future<Output = R>>(pool: &PgPool, f: F) -> R {
+    with_org_request_scope(pool, OrgScope::for_company_unit(Uuid::new_v4()), f)
+        .await
+        .expect("org request scope")
 }
 
 /// A fake mapping target. Records every map; returns a synthetic internal ref, or rejects when armed.

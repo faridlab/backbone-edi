@@ -35,9 +35,6 @@ use crate::domain::entity::TradingPartnerStatus;
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTradingPartnerDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -62,9 +59,6 @@ pub struct CreateTradingPartnerDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTradingPartnerDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -89,9 +83,6 @@ pub struct UpdateTradingPartnerDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchTradingPartnerDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -109,7 +100,7 @@ pub struct PatchTradingPartnerDto {
 impl PatchTradingPartnerDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.status.is_some()
+        self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.status.is_some()
     }
 }
 
@@ -127,8 +118,6 @@ impl PatchTradingPartnerDto {
 pub struct TradingPartnerResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -193,9 +182,9 @@ impl TradingPartnerListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct TradingPartnerSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub name: String,
     pub partner_code: String,
+    pub format: EdiFormat,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -207,7 +196,6 @@ impl From<TradingPartner> for TradingPartnerResponseDto {
     fn from(entity: TradingPartner) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             name: entity.name,
             partner_code: entity.partner_code,
             format: entity.format,
@@ -223,9 +211,9 @@ impl From<TradingPartner> for TradingPartnerSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             name: entity.name,
             partner_code: entity.partner_code,
+            format: entity.format,
             created_at,
         }
     }
@@ -235,7 +223,6 @@ impl From<CreateTradingPartnerDto> for TradingPartner {
     fn from(dto: CreateTradingPartnerDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             name: dto.name,
             partner_code: dto.partner_code,
             format: dto.format,
@@ -250,7 +237,6 @@ impl From<&TradingPartner> for TradingPartnerResponseDto {
     fn from(entity: &TradingPartner) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             name: entity.name.clone(),
             partner_code: entity.partner_code.clone(),
             format: entity.format.clone(),
@@ -269,7 +255,6 @@ impl backbone_core::FromCreateDto<CreateTradingPartnerDto> for TradingPartner {
 
 impl backbone_core::ApplyUpdateDto<UpdateTradingPartnerDto> for TradingPartner {
     fn apply_update(mut self, dto: UpdateTradingPartnerDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.name = dto.name;
         self.partner_code = dto.partner_code;
         self.format = dto.format;

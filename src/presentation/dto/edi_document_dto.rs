@@ -36,9 +36,6 @@ use crate::domain::entity::EdiStatus;
 #[serde(rename_all = "camelCase")]
 pub struct CreateEdiDocumentDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "partner_id")]
     pub partner_id: Uuid,
     #[serde(alias = "doc_type")]
@@ -67,9 +64,6 @@ pub struct CreateEdiDocumentDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateEdiDocumentDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "partner_id")]
     pub partner_id: Uuid,
@@ -100,9 +94,6 @@ pub struct UpdateEdiDocumentDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchEdiDocumentDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "partner_id")]
     pub partner_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "doc_type")]
@@ -123,7 +114,7 @@ pub struct PatchEdiDocumentDto {
 impl PatchEdiDocumentDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.partner_id.is_some() || self.doc_type.is_some() || self.direction.is_some() || self.control_number.is_some() || self.business_key.is_some() || self.payload.is_some()
+        self.partner_id.is_some() || self.doc_type.is_some() || self.direction.is_some() || self.control_number.is_some() || self.business_key.is_some() || self.payload.is_some()
     }
 }
 
@@ -141,8 +132,6 @@ impl PatchEdiDocumentDto {
 pub struct EdiDocumentResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub partner_id: Uuid,
     pub doc_type: EdiDocType,
@@ -215,9 +204,9 @@ impl EdiDocumentListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct EdiDocumentSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub partner_id: Uuid,
     pub doc_type: EdiDocType,
+    pub direction: EdiDirection,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -229,7 +218,6 @@ impl From<EdiDocument> for EdiDocumentResponseDto {
     fn from(entity: EdiDocument) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             partner_id: entity.partner_id,
             doc_type: entity.doc_type,
             direction: entity.direction,
@@ -251,9 +239,9 @@ impl From<EdiDocument> for EdiDocumentSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             partner_id: entity.partner_id,
             doc_type: entity.doc_type,
+            direction: entity.direction,
             created_at,
         }
     }
@@ -263,7 +251,6 @@ impl From<CreateEdiDocumentDto> for EdiDocument {
     fn from(dto: CreateEdiDocumentDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             partner_id: dto.partner_id,
             doc_type: dto.doc_type,
             direction: dto.direction,
@@ -284,7 +271,6 @@ impl From<&EdiDocument> for EdiDocumentResponseDto {
     fn from(entity: &EdiDocument) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             partner_id: entity.partner_id.clone(),
             doc_type: entity.doc_type.clone(),
             direction: entity.direction.clone(),
@@ -309,7 +295,6 @@ impl backbone_core::FromCreateDto<CreateEdiDocumentDto> for EdiDocument {
 
 impl backbone_core::ApplyUpdateDto<UpdateEdiDocumentDto> for EdiDocument {
     fn apply_update(mut self, dto: UpdateEdiDocumentDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.partner_id = dto.partner_id;
         self.doc_type = dto.doc_type;
         self.direction = dto.direction;

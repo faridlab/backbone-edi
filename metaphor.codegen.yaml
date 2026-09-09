@@ -22,6 +22,11 @@ user_owned:
   # is what makes editing them legitimate.
   - "src/infrastructure/persistence/edi_document_repository.rs"
   - "src/infrastructure/persistence/trading_partner_repository.rs"
+  # Hand-authored migration (not schema-derived): strips every company-fence artifact from the
+  # edi tables (ADR-0029) — company-leading indexes, the <table>_company_isolation RLS policies,
+  # and the company_id columns themselves. Never regenerated.
+  - "migrations/20260909120000_strip_tenancy.up.sql"
+  - "migrations/20260909120000_strip_tenancy.down.sql"
   - "tests/edi_golden_cases.rs"
   - "tests/edi_selling_seam.rs"
   - "tests/integrity_probes.rs"

@@ -48,7 +48,6 @@ impl From<EdiDocumentId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EdiDocumentDto {
     pub id: EdiDocumentId,
-    pub company_id: Uuid,
     pub partner_id: Uuid,
     pub doc_type: EdiDocType,
     pub direction: EdiDirection,
@@ -114,7 +113,6 @@ impl From<TradingPartnerId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradingPartnerDto {
     pub id: TradingPartnerId,
-    pub company_id: Uuid,
     pub name: String,
     pub partner_code: String,
     pub format: EdiFormat,

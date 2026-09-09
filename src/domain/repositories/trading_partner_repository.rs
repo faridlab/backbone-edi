@@ -7,7 +7,6 @@
 
 use async_trait::async_trait;
 use anyhow::Result;
-use uuid::Uuid;
 
 use crate::domain::entity::{TradingPartner, EdiFormat, PartnerDirection, TradingPartnerStatus};
 
@@ -44,7 +43,6 @@ pub struct TradingPartnerPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct TradingPartnerFilter {
-    pub company_id: Option<Uuid>,
     pub name: Option<String>,
     pub partner_code: Option<String>,
     pub format: Option<EdiFormat>,
@@ -55,7 +53,7 @@ pub struct TradingPartnerFilter {
 impl TradingPartnerFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.status.is_some()
+        self.name.is_some() || self.partner_code.is_some() || self.format.is_some() || self.partner_direction.is_some() || self.status.is_some()
     }
 }
 

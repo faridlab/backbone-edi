@@ -4,14 +4,16 @@
 //! `user_owned` in `metaphor.codegen.yaml`, so the generator skips it wholesale. The custom methods
 //! below hold the hand-written TradingPartner SQL (4-layer rule: services orchestrate, repos hold SQL).
 //!
+//! Tenancy (ADR-0029): the SQL here carries no tenant key. The scoped helpers ride the
+//! request-dedicated connection when the composing service bound one (its fence variables govern
+//! what the RLS layer accepts) and fall back to plain pool access otherwise.
+//!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<TradingPartner, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
 
 use anyhow::Result;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
-use backbone_orm::company_scope;
 
 use crate::domain::entity::TradingPartner;
 
@@ -41,10 +43,9 @@ impl TradingPartnerRepository {
 /// The exact row a partner registration writes.
 ///
 /// Mirrors the raw column shape rather than the `TradingPartner` entity: `format`/`partner_direction`
-/// are cast at the DB (`$5::edi_format`, `$6::partner_direction`).
+/// are cast at the DB (`$4::edi_format`, `$5::partner_direction`).
 pub struct NewPartnerRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub name: &'a str,
     pub partner_code: &'a str,
     pub format: &'a str,
@@ -55,25 +56,26 @@ pub struct NewPartnerRow<'a> {
 impl TradingPartnerRepository {
     /// Register a trading partner.
     ///
-    /// A read/write outside any transaction: takes the pool and runs `execute_scoped` so the RLS fence
-    /// (ADR-0008) applies. The caller wraps this in `with_company_scope(Some(company))` — the company is
-    /// on the DTO, and that scope is what satisfies the INSERT's WITH CHECK fence.
+    /// A read/write outside any transaction: takes the pool and runs through the scoped-execute
+    /// helper, so it rides the request-dedicated connection when the composing service bound a
+    /// scope (its WITH CHECK governs the row) and falls back to a plain pool insert otherwise.
     ///
     /// Returns the raw `sqlx::Error` deliberately: the caller inspects it for a unique violation to turn
-    /// a duplicate partner code into a domain error.
+    /// a duplicate partner code into a domain error. The module ships no code unique itself — a
+    /// violation here is the DECORATOR-installed per-unit unique (composition posture, ADR-0029).
     pub async fn insert_partner(
         &self,
         pool: &PgPool,
         p: &NewPartnerRow<'_>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        backbone_orm::org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"INSERT INTO edi.trading_partners
-                     (id, company_id, name, partner_code, format, partner_direction, status)
-                   VALUES ($1,$2,$3,$4,$5::edi_format,$6::partner_direction,'active')"#,
+                     (id, name, partner_code, format, partner_direction, status)
+                   VALUES ($1,$2,$3,$4::edi_format,$5::partner_direction,'active')"#,
             )
-            .bind(p.id).bind(p.company_id).bind(p.name).bind(p.partner_code)
+            .bind(p.id).bind(p.name).bind(p.partner_code)
             .bind(p.format).bind(p.partner_direction),
         )
         .await?;
@@ -81,24 +83,24 @@ impl TradingPartnerRepository {
     }
 
     /// The partner facts a receive-path gate needs: declared wire `format`, handled
-    /// `partner_direction`, and lifecycle `status` — the company-scoped read that decides whether a
+    /// `partner_direction`, and lifecycle `status` — the read that decides whether a
     /// document may enter through this partner at all (e.g. the UBL path runs only when the partner
-    /// row declares `ubl_bis3` and is active and accepts inbound).
+    /// row declares `ubl_bis3` and is active and accepts inbound). ID-only: under a composing
+    /// service's fence another unit's partner is simply not found.
     pub async fn fetch_partner_gate(
         &self,
         pool: &PgPool,
-        company_id: Uuid,
         partner_id: Uuid,
     ) -> Result<Option<PartnerGateRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = backbone_orm::org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT format::text AS format,
                           partner_direction::text AS partner_direction,
                           status::text AS status
-                   FROM edi.trading_partners WHERE company_id=$1 AND id=$2"#,
+                   FROM edi.trading_partners WHERE id=$1"#,
             )
-            .bind(company_id).bind(partner_id),
+            .bind(partner_id),
         )
         .await?;
         Ok(row.map(|r| PartnerGateRow {

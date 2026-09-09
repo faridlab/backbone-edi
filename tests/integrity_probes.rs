@@ -1,5 +1,13 @@
-//! Integrity probes — the exchange invariants: control number required, one partner per code, and the
-//! lifecycle event is durable (staged in the outbox, survives a lost in-proc publish).
+//! Integrity probes — the exchange invariants: control number required, and the lifecycle event is
+//! durable (staged in the outbox, survives a lost in-proc publish).
+//!
+//! Tenancy (ADR-0029): the module is tenant-agnostic — no tenant key on any write. The one
+//! tenancy-adjacent dependency is the durable-event path: `outbox_events` is a framework-owned,
+//! still-company-keyed surface, so probes that run a real write wrap it in an org request scope
+//! carrying a legacy company — the same thing a composing service's scope-resolving auth
+//! middleware provides. Everything asserted is domain; fence behavior is the composing service's
+//! to prove. (The former "one partner per code" probe pinned the per-company code unique — that
+//! unique is composition posture now, so the invariant is proved host-side and was deleted here.)
 
 mod common;
 use common::*;
@@ -8,16 +16,16 @@ use backbone_edi::application::service::edi_write_service::*;
 use serde_json::json;
 use uuid::Uuid;
 
-async fn partner(svc: &EdiWriteService, company: Uuid) -> Uuid {
+async fn partner(svc: &EdiWriteService) -> Uuid {
     svc.create_partner(NewPartner {
-        company_id: company, name: "Acme".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
+        name: "Acme".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
         format: "custom_json".into(), partner_direction: "both".into(),
     }).await.unwrap()
 }
 
-fn doc(company: Uuid, partner_id: Uuid, control: &str) -> InboundDoc {
+fn doc(partner_id: Uuid, control: &str) -> InboundDoc {
     InboundDoc {
-        company_id: company, partner_id, doc_type: "purchase_order".into(), control_number: control.into(), business_key: control.into(),
+        partner_id, doc_type: "purchase_order".into(), control_number: control.into(), business_key: control.into(),
         raw: "{}".into(), payload: json!({}),
     }
 }
@@ -26,29 +34,12 @@ fn doc(company: Uuid, partner_id: Uuid, control: &str) -> InboundDoc {
 #[tokio::test]
 async fn eip1_control_number_required() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
-    let r = svc.receive_document(doc(company, p, "  "), &FakeMapper::new(), &CapturingSink::new()).await;
-    assert!(matches!(r, Err(EdiError::Invalid(_))));
-}
-
-// EIP-2 — one partner per (company, partner_code).
-#[tokio::test]
-async fn eip2_one_partner_per_code() {
-    let pool = pool().await;
-    let company = Uuid::new_v4();
-    let svc = EdiWriteService::new(pool.clone());
-    let code = format!("DUP-{}", Uuid::new_v4());
-    svc.create_partner(NewPartner {
-        company_id: company, name: "A".into(), partner_code: code.clone(),
-        format: "x12".into(), partner_direction: "inbound".into(),
-    }).await.unwrap();
-    let dup = svc.create_partner(NewPartner {
-        company_id: company, name: "B".into(), partner_code: code,
-        format: "x12".into(), partner_direction: "inbound".into(),
+    let p = partner(&svc).await;
+    let r = scoped(&pool, async {
+        svc.receive_document(doc(p, "  "), &FakeMapper::new(), &CapturingSink::new()).await
     }).await;
-    assert!(matches!(dup, Err(EdiError::Invalid(_))), "duplicate partner code refused");
+    assert!(matches!(r, Err(EdiError::Invalid(_))));
 }
 
 // EIP-3 — the lifecycle event is durable: with the in-proc publish lost (dropping sink), EdiDocumentMapped
@@ -56,10 +47,11 @@ async fn eip2_one_partner_per_code() {
 #[tokio::test]
 async fn eip3_lifecycle_event_durable_via_outbox() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
-    let out = svc.receive_document(doc(company, p, &format!("CTRL-{}", Uuid::new_v4())), &FakeMapper::new(), &DroppingSink).await.unwrap();
+    let p = partner(&svc).await;
+    let out = scoped(&pool, async {
+        svc.receive_document(doc(p, &format!("CTRL-{}", Uuid::new_v4())), &FakeMapper::new(), &DroppingSink).await
+    }).await.unwrap();
     let staged: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM edi.outbox_events WHERE aggregate_id=$1 AND event_type='EdiDocumentMapped'")
         .bind(out.document_id.to_string()).fetch_one(&pool).await.unwrap();
@@ -72,20 +64,22 @@ async fn eip3_lifecycle_event_durable_via_outbox() {
 #[tokio::test]
 async fn eip4_recycled_control_number_maps_as_new() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let mapper = FakeMapper::new();
     let sink = CapturingSink::new();
 
     // Two DIFFERENT purchase orders that happen to carry the SAME recycled control number.
     let mk = |bk: &str| InboundDoc {
-        company_id: company, partner_id: p, doc_type: "purchase_order".into(),
+        partner_id: p, doc_type: "purchase_order".into(),
         control_number: "000000042".into(), business_key: bk.into(),
         raw: "{}".into(), payload: json!({"po": bk}),
     };
-    let a = svc.receive_document(mk("PO-A"), &mapper, &sink).await.unwrap();
-    let b = svc.receive_document(mk("PO-B"), &mapper, &sink).await.unwrap();
+    let (a, b) = scoped(&pool, async {
+        let a = svc.receive_document(mk("PO-A"), &mapper, &sink).await.unwrap();
+        let b = svc.receive_document(mk("PO-B"), &mapper, &sink).await.unwrap();
+        (a, b)
+    }).await;
 
     assert!(!a.duplicate);
     assert!(!b.duplicate, "PO-B is a new business document, not a retransmission");

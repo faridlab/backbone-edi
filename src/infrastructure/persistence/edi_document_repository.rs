@@ -4,14 +4,16 @@
 //! `user_owned` in `metaphor.codegen.yaml`, so the generator skips it wholesale. The custom methods
 //! below hold the hand-written EdiDocument SQL (4-layer rule: services orchestrate, repos hold SQL).
 //!
+//! Tenancy (ADR-0029): the SQL here carries no tenant key. The scoped helpers ride the
+//! request-dedicated connection when the composing service bound one (its fence variables govern
+//! what the RLS layer accepts) and fall back to plain pool access otherwise.
+//!
 //! Thin newtype over `backbone_orm::GenericCrudRepository<EdiDocument, backbone_orm::SoftDelete>`.
 //! All standard CRUD methods are available via `Deref`.
 
 use anyhow::Result;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
-use backbone_orm::company_scope;
 
 use crate::domain::entity::EdiDocument;
 
@@ -41,7 +43,6 @@ impl EdiDocumentRepository {
 /// The exact row an inbound-document dedup claim writes.
 pub struct NewInboundDocRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub partner_id: Uuid,
     pub doc_type: &'a str,
     pub control_number: &'a str,
@@ -75,36 +76,40 @@ impl EdiDocumentRepository {
     /// Claim the (partner, inbound, business_key) dedup slot. `Ok(None)` = this business document was
     /// already received (a partner retransmission) and the caller must re-read the original.
     ///
-    /// Runs outside a transaction on the pool via `fetch_optional_scalar_scoped`; the caller wraps it in
-    /// `with_company_scope(Some(company))` so the INSERT passes the WITH CHECK fence (ADR-0008).
+    /// Runs outside a transaction on the pool via the scoped-execute helper: it rides the
+    /// request-dedicated connection when the composing service bound a scope (its WITH CHECK governs
+    /// the insert) and falls back to a plain pool insert otherwise.
     pub async fn claim_inbound(
         &self,
         pool: &PgPool,
         d: &NewInboundDocRow<'_>,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        let row = backbone_orm::org_scope::fetch_optional_row_scoped(
             pool,
-            sqlx::query_scalar(
+            sqlx::query(
                 r#"INSERT INTO edi.edi_documents
-                     (id, company_id, partner_id, doc_type, direction, control_number, business_key, status, payload)
-                   VALUES ($1,$2,$3,$4::edi_doc_type,'inbound'::edi_direction,$5,$6,'received'::edi_status,$7)
+                     (id, partner_id, doc_type, direction, control_number, business_key, status, payload)
+                   VALUES ($1,$2,$3::edi_doc_type,'inbound'::edi_direction,$4,$5,'received'::edi_status,$6)
                    ON CONFLICT (partner_id, direction, business_key) DO NOTHING
                    RETURNING id"#,
             )
-            .bind(d.id).bind(d.company_id).bind(d.partner_id).bind(d.doc_type)
+            .bind(d.id).bind(d.partner_id).bind(d.doc_type)
             .bind(d.control_number).bind(d.business_key).bind(d.raw),
         )
-        .await
+        .await?;
+        Ok(row.map(|r| r.get("id")))
     }
 
-    /// Re-read the original after a losing dedup claim. Caller supplies the company scope, as above.
+    /// Re-read the original after a losing dedup claim. Rides the scoped-execute helper, as above —
+    /// under a composing service's fence another unit's rows are simply not matched. The
+    /// (partner_id, direction, business_key) unique guarantees at most one row.
     pub async fn fetch_inbound_by_business_key(
         &self,
         pool: &PgPool,
         partner_id: Uuid,
         business_key: &str,
     ) -> Result<DocOutcomeRow, sqlx::Error> {
-        let row = company_scope::fetch_one_row_scoped(
+        let row = backbone_orm::org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"SELECT id, status::text AS status, mapped_ref_id, control_number, payload
@@ -114,17 +119,21 @@ impl EdiDocumentRepository {
             .bind(partner_id).bind(business_key),
         )
         .await?;
-        Ok(DocOutcomeRow {
-            id: row.get("id"), status: row.get("status"), mapped_ref_id: row.get("mapped_ref_id"),
-            control_number: row.get("control_number"), payload: row.get("payload"),
-        })
+        match row {
+            Some(r) => Ok(DocOutcomeRow {
+                id: r.get("id"), status: r.get("status"), mapped_ref_id: r.get("mapped_ref_id"),
+                control_number: r.get("control_number"), payload: r.get("payload"),
+            }),
+            None => Err(sqlx::Error::RowNotFound),
+        }
     }
 
     /// Record a successful mapping to an internal document. State-guarded on `received` (a fresh
     /// claim) or `failed` (a re-drive that was just reset back to `received`, or racing one).
     ///
-    /// Takes the CALLER'S connection so this and the outbox stage commit as one unit. The caller has
-    /// already bound the company on it (`bind_company_on`) — don't re-bind here.
+    /// Takes the CALLER'S connection so this and the outbox stage commit as one unit. The caller
+    /// has already propagated the ambient org scope onto it (`bind_org_scope_on`) when one was
+    /// bound — don't re-bind here.
     ///
     /// Returns rows-affected: the caller stages/publishes its outbox event ONLY on `true`, which
     /// kills the duplicate event when two retransmissions race the same re-drive.
@@ -169,8 +178,8 @@ impl EdiDocumentRepository {
     /// envelope from the incoming copy. `false` = the row is settled (`mapped`/`acknowledged`, or
     /// already re-driven past the guard): the caller must return the stored outcome untouched.
     ///
-    /// Runs on the pool, company-scoped by the caller (`with_company_scope`) — the UPDATE must pass
-    /// the RLS WITH CHECK fence like every other write.
+    /// Runs on the pool through the scoped-execute helper: under a composing service's fence the
+    /// request connection's variables govern the row; with no scope bound this is a plain update.
     pub async fn reset_for_redrive(
         &self,
         pool: &PgPool,
@@ -178,7 +187,7 @@ impl EdiDocumentRepository {
         incoming_control_number: &str,
         incoming_raw: &str,
     ) -> Result<bool, sqlx::Error> {
-        let res = company_scope::execute_scoped(
+        let res = backbone_orm::org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"UPDATE edi.edi_documents
@@ -197,16 +206,16 @@ impl EdiDocumentRepository {
     /// Acknowledge a mapped/failed document, returning its PRE-update state. Idempotent: `Ok(None)` when
     /// the document is absent or not in an acknowledgeable state.
     ///
-    /// ID-only: no company argument. `fetch_optional_row_scoped` means it rides a connection carrying the
-    /// caller's `app.company_id`, so another company's document simply is not found. A non-request caller
-    /// (an ack job / an event-driven sink) MUST wrap this in `with_company_scope(Some(company_id))` —
-    /// otherwise it fails closed and returns `Ok(None)`.
+    /// ID-only: no tenant argument. `fetch_optional_row_scoped` means it rides a connection carrying
+    /// the composing service's fence variables, so another unit's document simply is not found. A
+    /// caller running with no scope bound (an ack job / an event-driven sink outside a request)
+    /// fails closed on a fenced deployment and returns `Ok(None)`.
     pub async fn acknowledge(
         &self,
         pool: &PgPool,
         document_id: Uuid,
     ) -> Result<Option<AckRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_row_scoped(
+        let row = backbone_orm::org_scope::fetch_optional_row_scoped(
             pool,
             sqlx::query(
                 r#"WITH d AS (

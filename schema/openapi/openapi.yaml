@@ -755,7 +755,6 @@ components:
       type: object
       required:
         - id
-        - company_id
         - partner_id
         - doc_type
         - direction
@@ -766,9 +765,6 @@ components:
         - metadata
       properties:
         id:
-          type: string
-          format: uuid
-        company_id:
           type: string
           format: uuid
         partner_id:
@@ -819,7 +815,6 @@ components:
     CreateEdiDocumentRequest:
       type: object
       required:
-        - company_id
         - partner_id
         - doc_type
         - direction
@@ -829,9 +824,6 @@ components:
         - payload
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         partner_id:
           type: string
           format: uuid
@@ -867,7 +859,6 @@ components:
     UpdateEdiDocumentRequest:
       type: object
       required:
-        - company_id
         - partner_id
         - doc_type
         - direction
@@ -877,9 +868,6 @@ components:
         - payload
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         partner_id:
           type: string
           format: uuid
@@ -915,9 +903,6 @@ components:
     PatchEdiDocumentRequest:
       type: object
       properties:
-        company_id:
-          type: string
-          format: uuid
         partner_id:
           type: string
           format: uuid
@@ -964,7 +949,6 @@ components:
       type: object
       required:
         - id
-        - company_id
         - name
         - partner_code
         - format
@@ -973,9 +957,6 @@ components:
         - metadata
       properties:
         id:
-          type: string
-          format: uuid
-        company_id:
           type: string
           format: uuid
         name:
@@ -1007,7 +988,6 @@ components:
     CreateTradingPartnerRequest:
       type: object
       required:
-        - company_id
         - name
         - partner_code
         - format
@@ -1015,9 +995,6 @@ components:
         - status
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         name:
           type: string
         partner_code:
@@ -1034,7 +1011,6 @@ components:
     UpdateTradingPartnerRequest:
       type: object
       required:
-        - company_id
         - name
         - partner_code
         - format
@@ -1042,9 +1018,6 @@ components:
         - status
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         name:
           type: string
         partner_code:
@@ -1061,9 +1034,6 @@ components:
     PatchTradingPartnerRequest:
       type: object
       properties:
-        company_id:
-          type: string
-          format: uuid
         name:
           type: string
         partner_code:

@@ -2,6 +2,13 @@
 //! the idempotent claim, the durable negative ack for refused-but-identifiable documents, the
 //! fail-fast for unidentifiable ones, and the re-drive semantics for crash-stranded and corrected
 //! retransmissions.
+//!
+//! Tenancy (ADR-0029): the module is tenant-agnostic — no tenant key on any write. The one
+//! tenancy-adjacent dependency is the durable-event path: `outbox_events` is a framework-owned,
+//! still-company-keyed surface, so probes that run a real write wrap it in an org request scope
+//! carrying a legacy company — the same thing a composing service's scope-resolving auth
+//! middleware provides. Everything asserted is domain; fence behavior is the composing service's
+//! to prove.
 
 mod common;
 use common::*;
@@ -19,9 +26,8 @@ fn order(id: &str) -> String {
     VALID.replace("PO-2026-1001", id)
 }
 
-async fn ubl_partner(svc: &EdiWriteService, company: Uuid) -> Uuid {
+async fn ubl_partner(svc: &EdiWriteService) -> Uuid {
     svc.create_partner(NewPartner {
-        company_id: company,
         name: "BIS3 Buyer".into(),
         partner_code: format!("BIS3-{}", Uuid::new_v4()),
         format: "ubl_bis3".into(),
@@ -44,14 +50,15 @@ async fn row_count(pool: &sqlx::PgPool, partner_id: Uuid) -> i64 {
 #[tokio::test]
 async fn ugc1_valid_ubl_order_maps() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let mapper = FakeMapper::new();
     let sink = CapturingSink::new();
 
     let raw = order("PO-UGC1-A");
-    let out = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await
+    }).await.unwrap();
     assert!(!out.duplicate);
     assert_eq!(out.status, "mapped");
     assert!(out.mapped_ref_id.is_some());
@@ -79,15 +86,17 @@ async fn ugc1_valid_ubl_order_maps() {
 #[tokio::test]
 async fn ugc2_retransmission_idempotent() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let mapper = FakeMapper::new();
     let sink = CapturingSink::new();
 
     let raw = order("PO-UGC2-A");
-    let first = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
-    let second = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
+    let (first, second) = scoped(&pool, async {
+        let first = svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await.unwrap();
+        let second = svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await.unwrap();
+        (first, second)
+    }).await;
     assert!(!first.duplicate);
     assert!(second.duplicate);
     assert_eq!(first.document_id, second.document_id);
@@ -103,15 +112,16 @@ async fn ugc2_retransmission_idempotent() {
 #[tokio::test]
 async fn ugc3_correction_redrive_after_refusal() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let sink = CapturingSink::new();
 
     // A refusal is durable: failed + joined codes + EdiDocumentFailed, mapper untouched.
     let refused = include_str!("fixtures/ubl/missing_price.xml").replace("PO-NOPRICE-1", "PO-UGC3-A");
     let rejecting = FakeMapper::rejecting("unreachable", "never called");
-    let out = svc.receive_ubl_order(company, partner_id, &refused, &rejecting, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &refused, &rejecting, &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "failed");
     assert!(!out.duplicate);
     assert_eq!(rejecting.count(), 0, "a parse refusal never calls the mapper");
@@ -123,7 +133,9 @@ async fn ugc3_correction_redrive_after_refusal() {
     assert!(detail.as_deref().unwrap_or_default().contains("missing_line_price"), "joined codes stored: {detail:?}");
 
     // The negative functional ack flows through the existing acknowledge surface.
-    assert!(svc.acknowledge(out.document_id, company, &sink).await.unwrap());
+    scoped(&pool, async {
+        svc.acknowledge(out.document_id, &sink).await
+    }).await.unwrap();
     let ack = sink.events.lock().unwrap().iter().rev().find_map(|e| match e {
         EdiEvent::EdiDocumentAcknowledged { document_id, accepted, error_detail, .. } if *document_id == out.document_id =>
             Some((*accepted, error_detail.clone())),
@@ -134,17 +146,23 @@ async fn ugc3_correction_redrive_after_refusal() {
 
     // Acknowledged is terminal: a correction under the SAME key dedups, it does not re-drive.
     let corrected_late = order("PO-UGC3-A");
-    let out_late = svc.receive_ubl_order(company, partner_id, &corrected_late, &FakeMapper::new(), &sink).await.unwrap();
+    let out_late = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &corrected_late, &FakeMapper::new(), &sink).await
+    }).await.unwrap();
     assert!(out_late.duplicate);
     assert_eq!(out_late.status, "acknowledged");
 
     // The re-drive proper: a SECOND refusal, NOT yet acknowledged, corrected on retransmission.
     let refused2 = include_str!("fixtures/ubl/missing_price.xml").replace("PO-NOPRICE-1", "PO-UGC3-B");
-    let out2 = svc.receive_ubl_order(company, partner_id, &refused2, &FakeMapper::new(), &sink).await.unwrap();
+    let out2 = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &refused2, &FakeMapper::new(), &sink).await
+    }).await.unwrap();
     assert_eq!(out2.status, "failed");
     let corrected = order("PO-UGC3-B");
     let accepting = FakeMapper::new();
-    let out3 = svc.receive_ubl_order(company, partner_id, &corrected, &accepting, &sink).await.unwrap();
+    let out3 = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &corrected, &accepting, &sink).await
+    }).await.unwrap();
     assert!(!out3.duplicate, "a re-drive that does work is not a duplicate");
     assert_eq!(out3.status, "mapped");
     assert_eq!(out3.document_id, out2.document_id, "same row — no second document");
@@ -161,13 +179,14 @@ async fn ugc3_correction_redrive_after_refusal() {
 #[tokio::test]
 async fn ugc4_crash_stranded_redrive() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let sink = CapturingSink::new();
 
     let raw = order("PO-UGC4-A");
-    let out = svc.receive_ubl_order(company, partner_id, &raw, &FakeMapper::new(), &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &FakeMapper::new(), &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "mapped");
 
     // Force the crash-stranded shape: settled back to received with no mapped ref.
@@ -175,7 +194,9 @@ async fn ugc4_crash_stranded_redrive() {
         .bind(out.document_id).execute(&pool).await.unwrap();
 
     let re = FakeMapper::new();
-    let out2 = svc.receive_ubl_order(company, partner_id, &raw, &re, &sink).await.unwrap();
+    let out2 = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &re, &sink).await
+    }).await.unwrap();
     assert!(!out2.duplicate);
     assert_eq!(out2.status, "mapped");
     assert_eq!(out2.document_id, out.document_id, "same row");
@@ -193,14 +214,15 @@ async fn ugc4_crash_stranded_redrive() {
 #[tokio::test]
 async fn ugc5_parse_refusal_with_id_is_durable() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let sink = CapturingSink::new();
 
     let raw = include_str!("fixtures/ubl/invalid_qty_zero.xml").replace("PO-QTYZERO-1", "PO-UGC5-A");
     let mapper = FakeMapper::new();
-    let out = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "failed");
     assert!(!out.duplicate);
     assert_eq!(mapper.count(), 0);
@@ -218,17 +240,20 @@ async fn ugc5_parse_refusal_with_id_is_durable() {
 #[tokio::test]
 async fn ugc6_parse_refusal_without_id_fails_fast() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let sink = CapturingSink::new();
 
     let no_id = include_str!("fixtures/ubl/missing_id.xml");
-    let err = svc.receive_ubl_order(company, partner_id, no_id, &FakeMapper::new(), &sink).await.unwrap_err();
+    let err = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, no_id, &FakeMapper::new(), &sink).await
+    }).await.unwrap_err();
     assert!(matches!(err, EdiError::UblRefused(ref d) if d.contains("missing_document_id")), "{err}");
 
     let oversized = format!("{}{}", order("PO-UGC6-B"), "\n".repeat(300_000));
-    let err = svc.receive_ubl_order(company, partner_id, &oversized, &FakeMapper::new(), &sink).await.unwrap_err();
+    let err = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &oversized, &FakeMapper::new(), &sink).await
+    }).await.unwrap_err();
     assert!(matches!(err, EdiError::UblRefused(ref d) if d.contains("document_too_large")), "{err}");
 
     assert_eq!(row_count(&pool, partner_id).await, 0, "nothing persisted for either");
@@ -240,41 +265,42 @@ async fn ugc6_parse_refusal_without_id_fails_fast() {
 #[tokio::test]
 async fn ugc7_partner_gate() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
     let sink = CapturingSink::new();
 
-    // Unknown partner.
-    let err = svc.receive_ubl_order(company, Uuid::new_v4(), VALID, &FakeMapper::new(), &sink).await.unwrap_err();
-    assert!(matches!(err, EdiError::NotFound(_)), "{err}");
+    scoped(&pool, async {
+        // Unknown partner.
+        let err = svc.receive_ubl_order(Uuid::new_v4(), VALID, &FakeMapper::new(), &sink).await.unwrap_err();
+        assert!(matches!(err, EdiError::NotFound(_)), "{err}");
 
-    // Declared format is not ubl_bis3 — payload sniffing must not rescue it.
-    let json_partner = svc.create_partner(NewPartner {
-        company_id: company, name: "JSON partner".into(), partner_code: format!("JSON-{}", Uuid::new_v4()),
-        format: "custom_json".into(), partner_direction: "both".into(),
-    }).await.unwrap();
-    let err = svc.receive_ubl_order(company, json_partner, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
-    assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("ubl_bis3")), "{err}");
+        // Declared format is not ubl_bis3 — payload sniffing must not rescue it.
+        let json_partner = svc.create_partner(NewPartner {
+            name: "JSON partner".into(), partner_code: format!("JSON-{}", Uuid::new_v4()),
+            format: "custom_json".into(), partner_direction: "both".into(),
+        }).await.unwrap();
+        let err = svc.receive_ubl_order(json_partner, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
+        assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("ubl_bis3")), "{err}");
 
-    // Outbound-only partner.
-    let out_partner = svc.create_partner(NewPartner {
-        company_id: company, name: "Outbound only".into(), partner_code: format!("OUT-{}", Uuid::new_v4()),
-        format: "ubl_bis3".into(), partner_direction: "outbound".into(),
-    }).await.unwrap();
-    let err = svc.receive_ubl_order(company, out_partner, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
-    assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("inbound")), "{err}");
+        // Outbound-only partner.
+        let out_partner = svc.create_partner(NewPartner {
+            name: "Outbound only".into(), partner_code: format!("OUT-{}", Uuid::new_v4()),
+            format: "ubl_bis3".into(), partner_direction: "outbound".into(),
+        }).await.unwrap();
+        let err = svc.receive_ubl_order(out_partner, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
+        assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("inbound")), "{err}");
 
-    // Inactive partner.
-    let inactive = ubl_partner(&svc, company).await;
-    sqlx::query("UPDATE edi.trading_partners SET status='inactive' WHERE id=$1")
-        .bind(inactive).execute(&pool).await.unwrap();
-    let err = svc.receive_ubl_order(company, inactive, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
-    assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("active")), "{err}");
+        // Inactive partner.
+        let inactive = ubl_partner(&svc).await;
+        sqlx::query("UPDATE edi.trading_partners SET status='inactive' WHERE id=$1")
+            .bind(inactive).execute(&pool).await.unwrap();
+        let err = svc.receive_ubl_order(inactive, VALID, &FakeMapper::new(), &sink).await.unwrap_err();
+        assert!(matches!(err, EdiError::Invalid(ref m) if m.contains("active")), "{err}");
 
-    assert_eq!(row_count(&pool, json_partner).await, 0);
-    assert_eq!(row_count(&pool, out_partner).await, 0);
-    assert_eq!(row_count(&pool, inactive).await, 0);
-    assert_eq!(sink.events.lock().unwrap().len(), 0);
+        assert_eq!(row_count(&pool, json_partner).await, 0);
+        assert_eq!(row_count(&pool, out_partner).await, 0);
+        assert_eq!(row_count(&pool, inactive).await, 0);
+        assert_eq!(sink.events.lock().unwrap().len(), 0);
+    }).await;
 }
 
 // UGC-8 — a settled row is immune to re-drive: a mapped retransmission returns the stored
@@ -282,17 +308,20 @@ async fn ugc7_partner_gate() {
 #[tokio::test]
 async fn ugc8_mapped_retransmission_immune_to_redrive() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let partner_id = ubl_partner(&svc, company).await;
+    let partner_id = ubl_partner(&svc).await;
     let sink = CapturingSink::new();
 
     let raw = order("PO-UGC8-A");
-    let out = svc.receive_ubl_order(company, partner_id, &raw, &FakeMapper::new(), &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &FakeMapper::new(), &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "mapped");
 
     let mapper = FakeMapper::new();
-    let again = svc.receive_ubl_order(company, partner_id, &raw, &mapper, &sink).await.unwrap();
+    let again = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw, &mapper, &sink).await
+    }).await.unwrap();
     assert!(again.duplicate, "a mapped row is returned untouched");
     assert_eq!(again.status, "mapped");
     assert_eq!(again.document_id, out.document_id);
@@ -300,9 +329,13 @@ async fn ugc8_mapped_retransmission_immune_to_redrive() {
     assert_eq!(sink.mapped(), 1);
 
     // Acknowledged stays terminal: even a forced reset-shape probe cannot re-open it via receive.
-    assert!(svc.acknowledge(out.document_id, company, &sink).await.unwrap());
+    scoped(&pool, async {
+        svc.acknowledge(out.document_id, &sink).await
+    }).await.unwrap();
     let raw2 = order("PO-UGC8-A");
-    let third = svc.receive_ubl_order(company, partner_id, &raw2, &mapper, &sink).await.unwrap();
+    let third = scoped(&pool, async {
+        svc.receive_ubl_order(partner_id, &raw2, &mapper, &sink).await
+    }).await.unwrap();
     assert!(third.duplicate);
     assert_eq!(third.status, "acknowledged");
     assert_eq!(mapper.count(), 0);

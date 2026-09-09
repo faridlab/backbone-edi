@@ -52,7 +52,6 @@ impl std::ops::Deref for TradingPartnerId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TradingPartner {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub name: String,
     pub partner_code: String,
     pub format: EdiFormat,
@@ -70,10 +69,9 @@ impl TradingPartner {
     }
 
     /// Create a new TradingPartner with required fields
-    pub fn new(company_id: Uuid, name: String, partner_code: String, format: EdiFormat, partner_direction: PartnerDirection, status: TradingPartnerStatus) -> Self {
+    pub fn new(name: String, partner_code: String, format: EdiFormat, partner_direction: PartnerDirection, status: TradingPartnerStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             name,
             partner_code,
             format,
@@ -147,9 +145,6 @@ impl TradingPartner {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "name" => {
                     if let Ok(v) = serde_json::from_value(value) { self.name = v; }
                 }
@@ -219,7 +214,6 @@ impl backbone_orm::EntityRepoMeta for TradingPartner {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("format".to_string(), "edi_format".to_string());
         m.insert("partner_direction".to_string(), "partner_direction".to_string());
         m.insert("status".to_string(), "trading_partner_status".to_string());
@@ -227,9 +221,6 @@ impl backbone_orm::EntityRepoMeta for TradingPartner {
     }
     fn search_fields() -> &'static [&'static str] {
         &["name", "partner_code"]
-    }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
     }
 }
 
@@ -239,7 +230,6 @@ impl backbone_orm::EntityRepoMeta for TradingPartner {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct TradingPartnerBuilder {
-    company_id: Option<Uuid>,
     name: Option<String>,
     partner_code: Option<String>,
     format: Option<EdiFormat>,
@@ -248,12 +238,6 @@ pub struct TradingPartnerBuilder {
 }
 
 impl TradingPartnerBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the name field (required)
     pub fn name(mut self, value: String) -> Self {
         self.name = Some(value);
@@ -288,13 +272,11 @@ impl TradingPartnerBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<TradingPartner, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let name = self.name.ok_or_else(|| "name is required".to_string())?;
         let partner_code = self.partner_code.ok_or_else(|| "partner_code is required".to_string())?;
 
         Ok(TradingPartner {
             id: Uuid::new_v4(),
-            company_id,
             name,
             partner_code,
             format: self.format.unwrap_or_default(),

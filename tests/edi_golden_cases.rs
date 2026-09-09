@@ -1,5 +1,12 @@
 //! Golden cases — the exchange-lifecycle oracle: receive an inbound document, map it to an internal one,
 //! dedup a retransmission, surface an unmappable document, and acknowledge.
+//!
+//! Tenancy (ADR-0029): the module is tenant-agnostic — no tenant key on any write. The one
+//! tenancy-adjacent dependency is the durable-event path: `outbox_events` is a framework-owned,
+//! still-company-keyed surface, so probes that run a real write wrap it in an org request scope
+//! carrying a legacy company — the same thing a composing service's scope-resolving auth
+//! middleware provides. Everything asserted is domain; fence behavior is the composing service's
+//! to prove.
 
 mod common;
 use common::*;
@@ -9,16 +16,16 @@ use backbone_edi::application::service::edi_write_service::*;
 use serde_json::json;
 use uuid::Uuid;
 
-async fn partner(svc: &EdiWriteService, company: Uuid) -> Uuid {
+async fn partner(svc: &EdiWriteService) -> Uuid {
     svc.create_partner(NewPartner {
-        company_id: company, name: "Acme".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
+        name: "Acme".into(), partner_code: format!("ACME-{}", Uuid::new_v4()),
         format: "custom_json".into(), partner_direction: "both".into(),
     }).await.unwrap()
 }
 
-fn po(company: Uuid, partner_id: Uuid, control: &str) -> InboundDoc {
+fn po(partner_id: Uuid, control: &str) -> InboundDoc {
     InboundDoc {
-        company_id: company, partner_id, doc_type: "purchase_order".into(), control_number: control.into(), business_key: control.into(),
+        partner_id, doc_type: "purchase_order".into(), control_number: control.into(), business_key: control.into(),
         raw: "{...raw edi...}".into(),
         payload: json!({"customer_id": Uuid::new_v4().to_string(), "lines": [{"item_id": Uuid::new_v4().to_string(), "qty": "3", "price": "1000"}]}),
     }
@@ -28,13 +35,14 @@ fn po(company: Uuid, partner_id: Uuid, control: &str) -> InboundDoc {
 #[tokio::test]
 async fn egc1_inbound_po_maps() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let mapper = FakeMapper::new();
     let sink = CapturingSink::new();
 
-    let out = svc.receive_document(po(company, p, "CTRL-1"), &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_document(po(p, "CTRL-1"), &mapper, &sink).await
+    }).await.unwrap();
     assert!(!out.duplicate);
     assert_eq!(out.status, "mapped");
     assert!(out.mapped_ref_id.is_some());
@@ -46,14 +54,16 @@ async fn egc1_inbound_po_maps() {
 #[tokio::test]
 async fn egc2_retransmission_idempotent() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let mapper = FakeMapper::new();
     let sink = CapturingSink::new();
 
-    let first = svc.receive_document(po(company, p, "CTRL-2"), &mapper, &sink).await.unwrap();
-    let second = svc.receive_document(po(company, p, "CTRL-2"), &mapper, &sink).await.unwrap();
+    let (first, second) = scoped(&pool, async {
+        let first = svc.receive_document(po(p, "CTRL-2"), &mapper, &sink).await.unwrap();
+        let second = svc.receive_document(po(p, "CTRL-2"), &mapper, &sink).await.unwrap();
+        (first, second)
+    }).await;
     assert!(!first.duplicate);
     assert!(second.duplicate);
     assert_eq!(first.document_id, second.document_id);
@@ -65,13 +75,14 @@ async fn egc2_retransmission_idempotent() {
 #[tokio::test]
 async fn egc3_unmappable_document_fails() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let mapper = FakeMapper::rejecting("bad_payload", "missing customer");
     let sink = CapturingSink::new();
 
-    let out = svc.receive_document(po(company, p, "CTRL-3"), &mapper, &sink).await.unwrap();
+    let out = scoped(&pool, async {
+        svc.receive_document(po(p, "CTRL-3"), &mapper, &sink).await
+    }).await.unwrap();
     assert_eq!(out.status, "failed");
     assert_eq!(sink.failed(), 1);
     let (status, err): (String, Option<String>) = sqlx::query_as(
@@ -85,14 +96,21 @@ async fn egc3_unmappable_document_fails() {
 #[tokio::test]
 async fn egc4_acknowledge() {
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let sink = CapturingSink::new();
 
-    let out = svc.receive_document(po(company, p, "CTRL-4"), &FakeMapper::new(), &sink).await.unwrap();
-    assert!(svc.acknowledge(out.document_id, company, &sink).await.unwrap());
-    assert!(!svc.acknowledge(out.document_id, company, &sink).await.unwrap(), "second ack is a no-op");
+    let out = scoped(&pool, async {
+        svc.receive_document(po(p, "CTRL-4"), &FakeMapper::new(), &sink).await
+    }).await.unwrap();
+    // The ack rides the scoped-execute helper — under the test's scope another unit's rows
+    // would simply not be found; on the undecorated probe database the domain flip is exercised.
+    assert!(scoped(&pool, async {
+        svc.acknowledge(out.document_id, &sink).await
+    }).await.unwrap());
+    assert!(!scoped(&pool, async {
+        svc.acknowledge(out.document_id, &sink).await
+    }).await.unwrap(), "second ack is a no-op");
     assert_eq!(sink.acknowledged(), 1);
     let status: String = sqlx::query_scalar("SELECT status::text FROM edi.edi_documents WHERE id=$1")
         .bind(out.document_id).fetch_one(&pool).await.unwrap();
@@ -106,17 +124,22 @@ async fn egc4_acknowledge() {
 async fn egc5_acknowledge_event_carries_polarity() {
     use backbone_edi::application::service::edi_events::EdiEvent;
     let pool = pool().await;
-    let company = Uuid::new_v4();
     let svc = EdiWriteService::new(pool.clone());
-    let p = partner(&svc, company).await;
+    let p = partner(&svc).await;
     let sink = CapturingSink::new();
 
     // A REJECTED document → negative ack carrying the reason.
-    let bad = svc.receive_document(po(company, p, "CTRL-R"), &FakeMapper::rejecting("bad", "missing customer"), &sink).await.unwrap();
-    svc.acknowledge(bad.document_id, company, &sink).await.unwrap();
+    let bad = scoped(&pool, async {
+        let bad = svc.receive_document(po(p, "CTRL-R"), &FakeMapper::rejecting("bad", "missing customer"), &sink).await.unwrap();
+        svc.acknowledge(bad.document_id, &sink).await.unwrap();
+        bad
+    }).await;
     // An ACCEPTED document → positive ack, no reason.
-    let good = svc.receive_document(po(company, p, "CTRL-G"), &FakeMapper::new(), &sink).await.unwrap();
-    svc.acknowledge(good.document_id, company, &sink).await.unwrap();
+    let good = scoped(&pool, async {
+        let good = svc.receive_document(po(p, "CTRL-G"), &FakeMapper::new(), &sink).await.unwrap();
+        svc.acknowledge(good.document_id, &sink).await.unwrap();
+        good
+    }).await;
 
     let acks: Vec<(Uuid, bool, Option<String>)> = sink.events.lock().unwrap().iter().filter_map(|e| match e {
         EdiEvent::EdiDocumentAcknowledged { document_id, accepted, error_detail, .. } =>
