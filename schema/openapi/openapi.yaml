@@ -7,7 +7,7 @@ info:
     This API provides 11 standard CRUD endpoints for each model.
 
 servers:
-  - url: http://localhost:3000
+  - url: /
     description: Development server
 
 tags:
@@ -17,7 +17,7 @@ tags:
     description: TradingPartner management endpoints
 
 paths:
-  /api/v1/edi_documents:
+  /api/v1/edi/edi_documents:
     get:
       tags:
         - EdiDocuments
@@ -63,7 +63,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/edi_documents/{id}:
+  /api/v1/edi/edi_documents/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -135,7 +135,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/edi_documents/bulk:
+  /api/v1/edi/edi_documents/bulk:
     post:
       tags:
         - EdiDocuments
@@ -227,7 +227,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/edi_documents/upsert:
+  /api/v1/edi/edi_documents/upsert:
     post:
       tags:
         - EdiDocuments
@@ -257,7 +257,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EdiDocument'
 
-  /api/v1/edi_documents/trash:
+  /api/v1/edi/edi_documents/trash:
     get:
       tags:
         - EdiDocuments
@@ -274,7 +274,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EdiDocumentList'
 
-  /api/v1/edi_documents/{id}/restore:
+  /api/v1/edi/edi_documents/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -292,7 +292,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/edi_documents/empty:
+  /api/v1/edi/edi_documents/empty:
     delete:
       tags:
         - EdiDocuments
@@ -309,7 +309,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/edi_documents/delete/bulk:
+  /api/v1/edi/edi_documents/delete/bulk:
     post:
       tags:
         - EdiDocuments
@@ -329,7 +329,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/edi_documents/restore/bulk:
+  /api/v1/edi/edi_documents/restore/bulk:
     post:
       tags:
         - EdiDocuments
@@ -347,7 +347,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/edi_documents/restore/all:
+  /api/v1/edi/edi_documents/restore/all:
     post:
       tags:
         - EdiDocuments
@@ -363,7 +363,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/edi_documents/trash/bulk:
+  /api/v1/edi/edi_documents/trash/bulk:
     delete:
       tags:
         - EdiDocuments
@@ -383,7 +383,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/trading_partners:
+  /api/v1/edi/trading_partners:
     get:
       tags:
         - TradingPartners
@@ -429,7 +429,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/trading_partners/{id}:
+  /api/v1/edi/trading_partners/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -501,7 +501,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/trading_partners/bulk:
+  /api/v1/edi/trading_partners/bulk:
     post:
       tags:
         - TradingPartners
@@ -593,7 +593,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/trading_partners/upsert:
+  /api/v1/edi/trading_partners/upsert:
     post:
       tags:
         - TradingPartners
@@ -623,7 +623,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TradingPartner'
 
-  /api/v1/trading_partners/trash:
+  /api/v1/edi/trading_partners/trash:
     get:
       tags:
         - TradingPartners
@@ -640,7 +640,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TradingPartnerList'
 
-  /api/v1/trading_partners/{id}/restore:
+  /api/v1/edi/trading_partners/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -658,7 +658,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/trading_partners/empty:
+  /api/v1/edi/trading_partners/empty:
     delete:
       tags:
         - TradingPartners
@@ -675,7 +675,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/trading_partners/delete/bulk:
+  /api/v1/edi/trading_partners/delete/bulk:
     post:
       tags:
         - TradingPartners
@@ -695,7 +695,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/trading_partners/restore/bulk:
+  /api/v1/edi/trading_partners/restore/bulk:
     post:
       tags:
         - TradingPartners
@@ -713,7 +713,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/trading_partners/restore/all:
+  /api/v1/edi/trading_partners/restore/all:
     post:
       tags:
         - TradingPartners
@@ -729,7 +729,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/trading_partners/trash/bulk:
+  /api/v1/edi/trading_partners/trash/bulk:
     delete:
       tags:
         - TradingPartners
