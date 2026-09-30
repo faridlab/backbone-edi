@@ -3,6 +3,7 @@ name = "backbone-edi"
 version = "0.7.19"
 edition = "2021"
 description = "Backbone Framework EDI module — B2B document interchange (trading partners and EDI documents)"
+license = "MIT OR Apache-2.0"
 
 [lib]
 path = "src/lib.rs"
