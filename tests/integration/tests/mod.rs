@@ -10,6 +10,5 @@ pub mod edi_document_api_test;
 pub mod trading_partner_api_test;
 
 // Re-exports for convenience
-pub use crud_test_base::*;
 pub use edi_document_api_test::*;
 pub use trading_partner_api_test::*;

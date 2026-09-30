@@ -277,6 +277,7 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
         m.insert("doc_type".to_string(), "edi_doc_type".to_string());
         m.insert("direction".to_string(), "edi_direction".to_string());
         m.insert("status".to_string(), "edi_status".to_string());
+        m.insert("acknowledged_at".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
