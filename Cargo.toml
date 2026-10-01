@@ -99,4 +99,4 @@ jsonwebtoken = "9.3"
 rand = "0.8"
 # TEST-ONLY edge: the mapping seam proves an inbound EDI PO becomes a REAL sales order in backbone-selling
 # via an in-test MappingPort. Dev-dependency ONLY — the shipped library reaches selling through the port.
-backbone-selling = { path = "../backbone-selling" }
+backbone-selling = { version = "0.13.19" }
