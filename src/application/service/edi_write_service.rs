@@ -109,6 +109,13 @@ impl EdiWriteService {
         Self { pool, partners, documents }
     }
 
+    /// The database this call runs on: the composer's request pool when one
+    /// is bound (a tenant mount, or a relay consumer wrapped by the host),
+    /// else the composed pool (ADR-0029 pool law).
+    fn rpool(&self) -> PgPool {
+        crate::request_pool::current().unwrap_or_else(|| self.pool.clone())
+    }
+
     /// Register a trading partner.
     pub async fn create_partner(&self, p: NewPartner) -> Result<Uuid, EdiError> {
         if p.name.trim().is_empty() || p.partner_code.trim().is_empty() {
@@ -119,7 +126,7 @@ impl EdiWriteService {
         // connection's variables govern the row; with no scope bound this is a plain insert.
         // A unique violation here is the DECORATOR-installed per-unit partner-code unique (the
         // module itself ships no code unique — per-unit uniques are composition posture).
-        let r = self.partners.insert_partner(&self.pool, &NewPartnerRow {
+        let r = self.partners.insert_partner(&self.rpool(), &NewPartnerRow {
             id,
             name: &p.name,
             partner_code: &p.partner_code,
@@ -174,7 +181,7 @@ impl EdiWriteService {
 
         // Partner gate — typed refusals, nothing persisted. Rides the scoped-execute helper, so
         // under a composing service's fence another unit's partner is simply not found.
-        let gate = self.partners.fetch_partner_gate(&self.pool, partner_id).await?;
+        let gate = self.partners.fetch_partner_gate(&self.rpool(), partner_id).await?;
         let Some(gate) = gate else {
             return Err(EdiError::NotFound("trading partner"));
         };
@@ -246,7 +253,7 @@ impl EdiWriteService {
         // audit column (the dedup is on business_key; control_number is display/audit only).
         let inserted: Option<Uuid> = self
             .documents
-            .claim_inbound(&self.pool, &NewInboundDocRow {
+            .claim_inbound(&self.rpool(), &NewInboundDocRow {
                 id: Uuid::new_v4(),
                 partner_id,
                 doc_type: "purchase_order",
@@ -261,12 +268,12 @@ impl EdiWriteService {
             None => {
                 let row = self
                     .documents
-                    .fetch_inbound_by_business_key(&self.pool, partner_id, business_key)
+                    .fetch_inbound_by_business_key(&self.rpool(), partner_id, business_key)
                     .await?;
                 if Self::redrivable(&row) {
                     let reset = self
                         .documents
-                        .reset_for_redrive(&self.pool, row.id, business_key, raw)
+                        .reset_for_redrive(&self.rpool(), row.id, business_key, raw)
                         .await?;
                     if reset {
                         return self
@@ -307,7 +314,7 @@ impl EdiWriteService {
             control_number: control_number.to_string(),
             reason: reason.to_string(),
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         // Propagate the ambient request scope, when one is bound, onto this transaction: the
         // repositories' scoped helpers ride the request-dedicated connection, but this pool
         // transaction does not, and rows a deployment's fence decorates are invisible to an
@@ -360,7 +367,7 @@ impl EdiWriteService {
         // connection's variables govern the row; with no scope bound this is a plain insert.
         let inserted: Option<Uuid> = self
             .documents
-            .claim_inbound(&self.pool, &NewInboundDocRow {
+            .claim_inbound(&self.rpool(), &NewInboundDocRow {
                 id: Uuid::new_v4(),
                 partner_id: d.partner_id,
                 doc_type: &d.doc_type,
@@ -373,7 +380,7 @@ impl EdiWriteService {
         let Some(document_id) = inserted else {
             let row = self
                 .documents
-                .fetch_inbound_by_business_key(&self.pool, d.partner_id, &d.business_key)
+                .fetch_inbound_by_business_key(&self.rpool(), d.partner_id, &d.business_key)
                 .await?;
             // Re-drive: a retransmission against a row that never completed mapping — crash-stranded
             // between map and mark, or any prior refusal — settles now instead of returning a bare
@@ -382,7 +389,7 @@ impl EdiWriteService {
             if Self::redrivable(&row) {
                 let reset = self
                     .documents
-                    .reset_for_redrive(&self.pool, row.id, &d.control_number, &d.raw)
+                    .reset_for_redrive(&self.rpool(), row.id, &d.control_number, &d.raw)
                     .await?;
                 if reset {
                     return self.settle_inbound(&d, row.id, owning_company, scope, mapper, events).await;
@@ -426,7 +433,7 @@ impl EdiWriteService {
                     control_number: d.control_number.clone(),
                     internal_ref_type: ack.internal_ref_type.clone(), internal_ref_id: ack.internal_ref_id,
                 });
-                let mut tx = self.pool.begin().await?;
+                let mut tx = self.rpool().begin().await?;
                 // Bind the ambient scope relay-only: keeps this transaction visible to a deployed
                 // fence AND satisfies the still-company-keyed outbox fence for the stage below.
                 if let Some(scope) = &scope {
@@ -452,7 +459,7 @@ impl EdiWriteService {
                     document_id, company_id: owning_company, partner_id: d.partner_id,
                     control_number: d.control_number.clone(), reason: rej.code.clone(),
                 };
-                let mut tx = self.pool.begin().await?;
+                let mut tx = self.rpool().begin().await?;
                 if let Some(scope) = &scope {
                     org_scope::bind_org_scope_on(&mut tx, scope).await?;
                 }
@@ -480,7 +487,7 @@ impl EdiWriteService {
     ) -> Result<ReceiveOutcome, EdiError> {
         let row = self
             .documents
-            .fetch_inbound_by_business_key(&self.pool, partner_id, business_key)
+            .fetch_inbound_by_business_key(&self.rpool(), partner_id, business_key)
             .await?;
         Ok(ReceiveOutcome {
             document_id: row.id, status: row.status,
@@ -502,7 +509,7 @@ impl EdiWriteService {
     ) -> Result<bool, EdiError> {
         // Capture the PRE-update status (mapped → accepted, failed → rejected) + the error via a CTE, so
         // the emitted event carries the 997 polarity the consumer needs to generate the wire ack.
-        let row = self.documents.acknowledge(&self.pool, document_id).await?;
+        let row = self.documents.acknowledge(&self.rpool(), document_id).await?;
         let Some(row) = row else { return Ok(false) };
         let accepted = row.accepted;
         events.publish(&EdiEvent::EdiDocumentAcknowledged {

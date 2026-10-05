@@ -22,6 +22,14 @@ user_owned:
   # is what makes editing them legitimate.
   - "src/infrastructure/persistence/edi_document_repository.rs"
   - "src/infrastructure/persistence/trading_partner_repository.rs"
+  # The composer-installed request-pool shim the write service and event stores resolve
+  # their database through (ADR-0029 pool law): hand-written, never schema-derived.
+  - "src/request_pool.rs"
+  # The event-store and snapshot-store implementations carry hand-edited pool resolution
+  # (rpool, ADR-0029 pool law) outside their marker blocks, so the generator must skip
+  # them wholesale.
+  - "src/infrastructure/event_store/event_store.rs"
+  - "src/infrastructure/event_store/snapshot_store.rs"
   # Hand-authored migration (not schema-derived): strips every company-fence artifact from the
   # edi tables (ADR-0029) — company-leading indexes, the <table>_company_isolation RLS policies,
   # and the company_id columns themselves. Never regenerated.
