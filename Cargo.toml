@@ -1,6 +1,6 @@
 [package]
 name = "backbone-edi"
-version = "0.7.22"
+version = "0.8.0"
 edition = "2021"
 description = "Backbone Framework EDI module — B2B document interchange (trading partners and EDI documents)"
 license = "MIT OR Apache-2.0"
@@ -20,12 +20,12 @@ path = "src/lib.rs"
 # or `rev = "<commit-sha>"`. Cargo dedupes the git fetch — the repo is only
 # cloned once even though four crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { version = "2.7.35", features = ["postgres"] }
-backbone-orm = { version = "2.7.35" }
-backbone-auth = { version = "2.7.35" }
-backbone-messaging = { version = "2.7.35" }
+backbone-core = { version = "3.0.0", features = ["postgres"] }
+backbone-orm = { version = "3.0.0" }
+backbone-auth = { version = "3.0.0" }
+backbone-messaging = { version = "3.0.0" }
 # Transactional outbox — the EDI lifecycle event is staged in the same tx as the document write (durable).
-backbone-outbox = { version = "2.7.35", features = ["multi_tenant"] }
+backbone-outbox = { version = "3.0.0", features = ["multi_tenant"] }
 
 # Core async runtime and serialization
 tokio = { version = "1.0", features = ["full"] }
@@ -99,4 +99,4 @@ jsonwebtoken = "9.3"
 rand = "0.8"
 # TEST-ONLY edge: the mapping seam proves an inbound EDI PO becomes a REAL sales order in backbone-selling
 # via an in-test MappingPort. Dev-dependency ONLY — the shipped library reaches selling through the port.
-backbone-selling = { version = "0.13.19" }
+backbone-selling = { version = "0.14.0" }
