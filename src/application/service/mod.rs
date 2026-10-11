@@ -11,17 +11,12 @@ pub mod edi_document_service;
 pub mod trading_partner_service;
 
 // <<< CUSTOM
-pub mod edi_ports;
-pub mod edi_events;
-pub mod edi_write_service;
-pub mod ubl;
 // END CUSTOM
 
 pub use edi_document_service::EdiDocumentService;
 pub use trading_partner_service::TradingPartnerService;
 // <<< CUSTOM
-pub use edi_ports::{MapAck, MapRejected, MapRequest, MappingPort};
-pub use edi_events::{EdiDocumentMapped, EdiEvent, EdiEventSink, LoggingSink};
-pub use edi_write_service::{EdiError, EdiWriteService, InboundDoc, NewPartner, ReceiveOutcome};
-pub use ubl::{parse_ubl_order, ParsedUblOrder, UblRefusal};
 // END CUSTOM
+
+// This directory's extension (hand-written; ADR-0031).
+include!("mod.ext.rs");
