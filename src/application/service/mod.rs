@@ -10,13 +10,9 @@ pub use error::{ServiceError, ServiceResult};
 pub mod edi_document_service;
 pub mod trading_partner_service;
 
-// <<< CUSTOM
-// END CUSTOM
 
 pub use edi_document_service::EdiDocumentService;
 pub use trading_partner_service::TradingPartnerService;
-// <<< CUSTOM
-// END CUSTOM
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

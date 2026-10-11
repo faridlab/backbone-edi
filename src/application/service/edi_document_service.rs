@@ -32,5 +32,3 @@ pub type EdiDocumentService = GenericCrudService<
     EdiDocumentRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

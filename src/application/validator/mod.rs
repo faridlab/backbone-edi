@@ -11,5 +11,3 @@ pub mod trading_partner_validator;
 pub use edi_document_validator::{EdiDocumentValidator, edi_document_validator};
 pub use trading_partner_validator::{TradingPartnerValidator, trading_partner_validator};
 
-// <<< CUSTOM
-// END CUSTOM

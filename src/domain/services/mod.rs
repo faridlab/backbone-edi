@@ -8,5 +8,3 @@ pub mod trading_partner_domain_policy;
 pub use edi_document_domain_policy::EdiDocumentDomainPolicy;
 pub use trading_partner_domain_policy::TradingPartnerDomainPolicy;
 
-// <<< CUSTOM
-// END CUSTOM

@@ -20,9 +20,5 @@ pub fn edi_document_validator() -> EdiDocumentValidator {
         .rule(RequiredString::new("payload", |e: &EdiDocument| &e.payload))
         .rule(OptionalNotBlank::new("mapped_ref_type", |e: &EdiDocument| e.mapped_ref_type.as_deref()))
         .rule(OptionalNotBlank::new("error_detail", |e: &EdiDocument| e.error_detail.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

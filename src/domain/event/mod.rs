@@ -12,5 +12,3 @@ pub use edi_document_event_handlers::EdiDocumentEventHandler;
 pub use trading_partner_events::{TradingPartnerEvent, TradingPartnerEventPublisher, NoopTradingPartnerEventPublisher};
 pub use trading_partner_event_handlers::TradingPartnerEventHandler;
 
-// <<< CUSTOM
-// END CUSTOM

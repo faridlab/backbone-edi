@@ -24,8 +24,6 @@ pub mod application;
 pub mod presentation;
 pub mod seeders;
 pub mod exports;
-// <<< CUSTOM MODULES
-// END CUSTOM
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -59,8 +57,6 @@ use sqlx::PgPool;
 pub struct EdiModule {
     pub(crate) edi_document_service: Arc<EdiDocumentService>,
     pub(crate) trading_partner_service: Arc<TradingPartnerService>,
-    // <<< CUSTOM FIELDS
-    // END CUSTOM
 }
 
 impl EdiModule {
@@ -111,15 +107,11 @@ impl EdiModule {
             .merge(create_trading_partner_read_routes(self.trading_partner_service.clone()))
     }
 
-    // <<< CUSTOM METHODS
-    // END CUSTOM
 }
 
 /// Builder for EdiModule
 pub struct EdiModuleBuilder {
     db_pool: Option<PgPool>,
-    // <<< CUSTOM BUILDER FIELDS
-    // END CUSTOM
 }
 
 impl EdiModuleBuilder {
@@ -127,8 +119,6 @@ impl EdiModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
-            // <<< CUSTOM BUILDER DEFAULTS
-            // END CUSTOM
         }
     }
 
@@ -138,8 +128,6 @@ impl EdiModuleBuilder {
         self
     }
 
-    // <<< CUSTOM - custom builder methods
-    // END CUSTOM
 
     /// Build the module with configured dependencies
     pub fn build(self) -> anyhow::Result<EdiModule> {
@@ -154,14 +142,10 @@ impl EdiModuleBuilder {
         let trading_partner_repository = Arc::new(TradingPartnerRepository::new(db_pool.clone()));
         let trading_partner_service = Arc::new(TradingPartnerService::with_repository(trading_partner_repository.clone()));
 
-        // <<< CUSTOM
-        // END CUSTOM
 
         Ok(EdiModule {
             edi_document_service,
             trading_partner_service,
-            // <<< CUSTOM
-            // END CUSTOM
         })
     }
 }

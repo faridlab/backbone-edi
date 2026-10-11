@@ -17,9 +17,5 @@ pub fn trading_partner_validator() -> TradingPartnerValidator {
     EntityValidator::new()
         .rule(RequiredString::new("name", |e: &TradingPartner| &e.name))
         .rule(RequiredString::new("partner_code", |e: &TradingPartner| &e.partner_code))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

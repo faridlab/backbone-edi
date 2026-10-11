@@ -187,3 +187,4 @@ pub fn create_protected_edi_document_routes<A: AuthMiddleware + Send + Sync + 's
             }
         }))
 }
+

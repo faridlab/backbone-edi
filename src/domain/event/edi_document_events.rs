@@ -11,8 +11,6 @@ use crate::domain::entity::EdiDocument;
 /// enum containing a `Crud(CrudEvent<EdiDocument>)` variant.
 pub type EdiDocumentEvent = CrudEvent<EdiDocument>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

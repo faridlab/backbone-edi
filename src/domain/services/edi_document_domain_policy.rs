@@ -18,5 +18,3 @@ use crate::domain::entity::EdiDocument;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type EdiDocumentDomainPolicy = PermitAllPolicy<EdiDocument>;
 
-// <<< CUSTOM
-// END CUSTOM

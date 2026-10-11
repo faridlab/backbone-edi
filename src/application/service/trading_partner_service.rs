@@ -32,5 +32,3 @@ pub type TradingPartnerService = GenericCrudService<
     TradingPartnerRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

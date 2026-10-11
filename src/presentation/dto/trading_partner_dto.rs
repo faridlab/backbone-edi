@@ -268,7 +268,7 @@ impl backbone_core::ApplyUpdateDto<UpdateTradingPartnerDto> for TradingPartner {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to TradingPartner here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

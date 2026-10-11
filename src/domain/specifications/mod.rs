@@ -9,5 +9,3 @@ pub use backbone_core::{Specification, AndSpecification, OrSpecification, NotSpe
 pub mod edi_document_specification;
 pub mod trading_partner_specification;
 
-// <<< CUSTOM
-// END CUSTOM
