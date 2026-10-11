@@ -113,7 +113,6 @@ impl MappingPort for UblSellingMapper {
             quotation_id: None,
             delivery_carrier_id: None,
             // The port contract keeps the owning tenant: selling is still a company-fenced sibling.
-            company_id: req.company_id,
             branch_id: None,
             customer_id: self.customer_id,
             order_date,

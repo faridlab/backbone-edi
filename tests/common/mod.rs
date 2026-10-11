@@ -90,7 +90,7 @@ impl MappingPort for RealSellingMapper {
         }).collect()).unwrap_or_default();
         let order = NewSalesOrder {
             order_number: format!("EDI-{}", req.control_number),
-            quotation_id: None, delivery_carrier_id: None, company_id: req.company_id, branch_id: None, customer_id,
+            quotation_id: None, delivery_carrier_id: None, branch_id: None, customer_id,
             order_date: chrono::Utc::now().date_naive(), delivery_date: None, currency: None,
             tax_rate: Decimal::ZERO, notes: Some("Created from inbound EDI PO".into()), lines,
         };
