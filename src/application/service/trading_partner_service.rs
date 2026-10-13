@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<TradingPartner> for TradingPartnerRo
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `name_required` (@required on TradingPartner.name)
         if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "name")), r::not(r::is_empty(r::trim(r::field(row, "name")))))) {
@@ -64,7 +64,7 @@ impl backbone_core::write_guard::WriteGuard<TradingPartner> for TradingPartnerRo
         }
         // `name_max_length` (@length(max=200) on TradingPartner.name)
         if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(200.0_f64))) {
-            shadow.push(Violation::new("name", "max_length", "name must be at most 200 characters").with_param("max", 200_i64));
+            refuse.push(Violation::new("name", "max_length", "name must be at most 200 characters").with_param("max", 200_i64));
         }
         // `partner_code_required` (@required on TradingPartner.partner_code)
         if (create || (update && r::changed(old.as_ref(), row, &["partner_code"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "partner_code")), r::not(r::is_empty(r::trim(r::field(row, "partner_code")))))) {
@@ -72,7 +72,7 @@ impl backbone_core::write_guard::WriteGuard<TradingPartner> for TradingPartnerRo
         }
         // `partner_code_max_length` (@length(max=80) on TradingPartner.partner_code)
         if (create || (update && r::changed(old.as_ref(), row, &["partner_code"]))) && !r::holds(&r::le(r::length(r::field(row, "partner_code")), r::Val::Num(80.0_f64))) {
-            shadow.push(Violation::new("partner_code", "max_length", "partner_code must be at most 80 characters").with_param("max", 80_i64));
+            refuse.push(Violation::new("partner_code", "max_length", "partner_code must be at most 80 characters").with_param("max", 80_i64));
         }
         GuardOutcome { refuse, shadow }
     }

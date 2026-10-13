@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<EdiDocument> for EdiDocumentRowRules
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `partner_id_required` (@required on EdiDocument.partner_id)
         if (create || (update && r::changed(old.as_ref(), row, &["partner_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "partner_id")), r::not(r::is_empty(r::trim(r::field(row, "partner_id")))))) {
@@ -68,7 +68,7 @@ impl backbone_core::write_guard::WriteGuard<EdiDocument> for EdiDocumentRowRules
         }
         // `control_number_max_length` (@length(max=120) on EdiDocument.control_number)
         if (create || (update && r::changed(old.as_ref(), row, &["control_number"]))) && !r::holds(&r::le(r::length(r::field(row, "control_number")), r::Val::Num(120.0_f64))) {
-            shadow.push(Violation::new("control_number", "max_length", "control_number must be at most 120 characters").with_param("max", 120_i64));
+            refuse.push(Violation::new("control_number", "max_length", "control_number must be at most 120 characters").with_param("max", 120_i64));
         }
         // `business_key_required` (@required on EdiDocument.business_key)
         if (create || (update && r::changed(old.as_ref(), row, &["business_key"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "business_key")), r::not(r::is_empty(r::trim(r::field(row, "business_key")))))) {
@@ -76,7 +76,7 @@ impl backbone_core::write_guard::WriteGuard<EdiDocument> for EdiDocumentRowRules
         }
         // `business_key_max_length` (@length(max=120) on EdiDocument.business_key)
         if (create || (update && r::changed(old.as_ref(), row, &["business_key"]))) && !r::holds(&r::le(r::length(r::field(row, "business_key")), r::Val::Num(120.0_f64))) {
-            shadow.push(Violation::new("business_key", "max_length", "business_key must be at most 120 characters").with_param("max", 120_i64));
+            refuse.push(Violation::new("business_key", "max_length", "business_key must be at most 120 characters").with_param("max", 120_i64));
         }
         // `payload_required` (@required on EdiDocument.payload)
         if (create || (update && r::changed(old.as_ref(), row, &["payload"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "payload")), r::not(r::is_empty(r::trim(r::field(row, "payload")))))) {
@@ -84,7 +84,7 @@ impl backbone_core::write_guard::WriteGuard<EdiDocument> for EdiDocumentRowRules
         }
         // `payload_max_length` (@length(max=200000) on EdiDocument.payload)
         if (create || (update && r::changed(old.as_ref(), row, &["payload"]))) && !r::holds(&r::le(r::length(r::field(row, "payload")), r::Val::Num(200000.0_f64))) {
-            shadow.push(Violation::new("payload", "max_length", "payload must be at most 200000 characters").with_param("max", 200000_i64));
+            refuse.push(Violation::new("payload", "max_length", "payload must be at most 200000 characters").with_param("max", 200000_i64));
         }
         GuardOutcome { refuse, shadow }
     }
