@@ -136,11 +136,11 @@ impl EdiModuleBuilder {
 
         // EdiDocument service
         let edi_document_repository = Arc::new(EdiDocumentRepository::new(db_pool.clone()));
-        let edi_document_service = Arc::new(EdiDocumentService::with_repository(edi_document_repository.clone()));
+        let edi_document_service = Arc::new(EdiDocumentService::with_repository(edi_document_repository.clone()).with_guard(Arc::new(crate::application::service::EdiDocumentRowRules)));
 
         // TradingPartner service
         let trading_partner_repository = Arc::new(TradingPartnerRepository::new(db_pool.clone()));
-        let trading_partner_service = Arc::new(TradingPartnerService::with_repository(trading_partner_repository.clone()));
+        let trading_partner_service = Arc::new(TradingPartnerService::with_repository(trading_partner_repository.clone()).with_guard(Arc::new(crate::application::service::TradingPartnerRowRules)));
 
 
         Ok(EdiModule {

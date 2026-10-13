@@ -13,6 +13,8 @@ pub mod trading_partner_service;
 
 pub use edi_document_service::EdiDocumentService;
 pub use trading_partner_service::TradingPartnerService;
+pub use edi_document_service::EdiDocumentRowRules;
+pub use trading_partner_service::TradingPartnerRowRules;
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

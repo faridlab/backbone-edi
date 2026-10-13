@@ -32,3 +32,61 @@ pub type EdiDocumentService = GenericCrudService<
     EdiDocumentRepository,
 >;
 
+/// The rules the schema declares for EdiDocument, checked against the row a create or update
+/// would store. The generated build attaches it to [`EdiDocumentService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
+pub struct EdiDocumentRowRules;
+
+#[async_trait::async_trait]
+impl backbone_core::write_guard::WriteGuard<EdiDocument> for EdiDocumentRowRules {
+    async fn check(
+        &self,
+        ctx: &backbone_core::write_guard::WriteCtx<'_, EdiDocument>,
+    ) -> backbone_core::write_guard::GuardOutcome {
+        use backbone_core::row_rule as r;
+        use backbone_core::violation::Violation;
+        use backbone_core::write_guard::{GuardOutcome, WriteKind};
+        let (create, update) = (ctx.kind == WriteKind::Create, ctx.kind == WriteKind::Update);
+        let Some(after) = ctx.after.filter(|_| create || update) else {
+            return GuardOutcome::allow();
+        };
+        let Ok(row) = serde_json::to_value(after) else {
+            return GuardOutcome::allow();
+        };
+        let row = &row;
+        let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
+        let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
+        // `partner_id_required` (@required on EdiDocument.partner_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["partner_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "partner_id")), r::not(r::is_empty(r::trim(r::field(row, "partner_id")))))) {
+            refuse.push(Violation::new("partner_id", "required", "partner_id is required"));
+        }
+        // `control_number_required` (@required on EdiDocument.control_number)
+        if (create || (update && r::changed(old.as_ref(), row, &["control_number"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "control_number")), r::not(r::is_empty(r::trim(r::field(row, "control_number")))))) {
+            refuse.push(Violation::new("control_number", "required", "control_number is required"));
+        }
+        // `control_number_max_length` (@length(max=120) on EdiDocument.control_number)
+        if (create || (update && r::changed(old.as_ref(), row, &["control_number"]))) && !r::holds(&r::le(r::length(r::field(row, "control_number")), r::Val::Num(120.0_f64))) {
+            shadow.push(Violation::new("control_number", "max_length", "control_number must be at most 120 characters").with_param("max", 120_i64));
+        }
+        // `business_key_required` (@required on EdiDocument.business_key)
+        if (create || (update && r::changed(old.as_ref(), row, &["business_key"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "business_key")), r::not(r::is_empty(r::trim(r::field(row, "business_key")))))) {
+            refuse.push(Violation::new("business_key", "required", "business_key is required"));
+        }
+        // `business_key_max_length` (@length(max=120) on EdiDocument.business_key)
+        if (create || (update && r::changed(old.as_ref(), row, &["business_key"]))) && !r::holds(&r::le(r::length(r::field(row, "business_key")), r::Val::Num(120.0_f64))) {
+            shadow.push(Violation::new("business_key", "max_length", "business_key must be at most 120 characters").with_param("max", 120_i64));
+        }
+        // `payload_required` (@required on EdiDocument.payload)
+        if (create || (update && r::changed(old.as_ref(), row, &["payload"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "payload")), r::not(r::is_empty(r::trim(r::field(row, "payload")))))) {
+            refuse.push(Violation::new("payload", "required", "payload is required"));
+        }
+        // `payload_max_length` (@length(max=200000) on EdiDocument.payload)
+        if (create || (update && r::changed(old.as_ref(), row, &["payload"]))) && !r::holds(&r::le(r::length(r::field(row, "payload")), r::Val::Num(200000.0_f64))) {
+            shadow.push(Violation::new("payload", "max_length", "payload must be at most 200000 characters").with_param("max", 200000_i64));
+        }
+        GuardOutcome { refuse, shadow }
+    }
+}
+

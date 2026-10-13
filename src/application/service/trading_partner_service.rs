@@ -32,3 +32,49 @@ pub type TradingPartnerService = GenericCrudService<
     TradingPartnerRepository,
 >;
 
+/// The rules the schema declares for TradingPartner, checked against the row a create or update
+/// would store. The generated build attaches it to [`TradingPartnerService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
+pub struct TradingPartnerRowRules;
+
+#[async_trait::async_trait]
+impl backbone_core::write_guard::WriteGuard<TradingPartner> for TradingPartnerRowRules {
+    async fn check(
+        &self,
+        ctx: &backbone_core::write_guard::WriteCtx<'_, TradingPartner>,
+    ) -> backbone_core::write_guard::GuardOutcome {
+        use backbone_core::row_rule as r;
+        use backbone_core::violation::Violation;
+        use backbone_core::write_guard::{GuardOutcome, WriteKind};
+        let (create, update) = (ctx.kind == WriteKind::Create, ctx.kind == WriteKind::Update);
+        let Some(after) = ctx.after.filter(|_| create || update) else {
+            return GuardOutcome::allow();
+        };
+        let Ok(row) = serde_json::to_value(after) else {
+            return GuardOutcome::allow();
+        };
+        let row = &row;
+        let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
+        let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
+        // `name_required` (@required on TradingPartner.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "name")), r::not(r::is_empty(r::trim(r::field(row, "name")))))) {
+            refuse.push(Violation::new("name", "required", "name is required"));
+        }
+        // `name_max_length` (@length(max=200) on TradingPartner.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(200.0_f64))) {
+            shadow.push(Violation::new("name", "max_length", "name must be at most 200 characters").with_param("max", 200_i64));
+        }
+        // `partner_code_required` (@required on TradingPartner.partner_code)
+        if (create || (update && r::changed(old.as_ref(), row, &["partner_code"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "partner_code")), r::not(r::is_empty(r::trim(r::field(row, "partner_code")))))) {
+            refuse.push(Violation::new("partner_code", "required", "partner_code is required"));
+        }
+        // `partner_code_max_length` (@length(max=80) on TradingPartner.partner_code)
+        if (create || (update && r::changed(old.as_ref(), row, &["partner_code"]))) && !r::holds(&r::le(r::length(r::field(row, "partner_code")), r::Val::Num(80.0_f64))) {
+            shadow.push(Violation::new("partner_code", "max_length", "partner_code must be at most 80 characters").with_param("max", 80_i64));
+        }
+        GuardOutcome { refuse, shadow }
+    }
+}
+
