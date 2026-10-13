@@ -35,9 +35,6 @@ pub use infrastructure::persistence::*;
 pub use application::service::EdiDocumentService;
 pub use application::service::TradingPartnerService;
 
-// Re-exports - Workflows
-pub use application::workflows::*;
-
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;
