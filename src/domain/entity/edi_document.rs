@@ -281,6 +281,9 @@ impl backbone_orm::EntityRepoMeta for EdiDocument {
     fn search_fields() -> &'static [&'static str] {
         &["control_number", "business_key", "payload"]
     }
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("partner", "trading_partners", "partnerId")]
+    }
 }
 
 /// Builder for EdiDocument entity
