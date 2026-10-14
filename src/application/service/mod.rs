@@ -16,5 +16,21 @@ pub use trading_partner_service::TradingPartnerService;
 pub use edi_document_service::EdiDocumentRowRules;
 pub use trading_partner_service::TradingPartnerRowRules;
 
+/// A `EdiDocumentService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_edi_document_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::EdiDocumentRepository>,
+) -> EdiDocumentService {
+    EdiDocumentService::with_repository(repository).with_guard(std::sync::Arc::new(EdiDocumentRowRules))
+}
+
+/// A `TradingPartnerService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_trading_partner_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::TradingPartnerRepository>,
+) -> TradingPartnerService {
+    TradingPartnerService::with_repository(repository).with_guard(std::sync::Arc::new(TradingPartnerRowRules))
+}
+
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
