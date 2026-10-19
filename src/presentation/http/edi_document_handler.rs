@@ -81,6 +81,13 @@ impl axum::response::IntoResponse for EdiDocumentError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `edi_document:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn edi_document_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("edi_document")
+        .in_module("edi")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for EdiDocument.
 ///
 /// # Routes
@@ -110,21 +117,23 @@ impl axum::response::IntoResponse for EdiDocumentError {
 /// let router = create_edi_document_routes(service);
 /// ```
 pub fn create_edi_document_routes(service: Arc<EdiDocumentService>) -> Router {
-    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::routes(
+    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::routes_guarded(
         service,
         "/edi_documents",
+        edi_document_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for EdiDocument.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_edi_document_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_edi_document_read_routes(service: Arc<EdiDocumentService>) -> Router {
-    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::read_routes(
+    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::read_routes_guarded(
         service,
         "/edi_documents",
+        edi_document_permissions(),
     )
 }
 
@@ -140,9 +149,10 @@ pub fn create_edi_document_read_routes(service: Arc<EdiDocumentService>) -> Rout
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_edi_document_write_routes(service: Arc<EdiDocumentService>) -> Router {
-    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::write_routes(
+    BackboneCrudHandler::<EdiDocumentService, EdiDocument, CreateEdiDocumentDto, UpdateEdiDocumentDto, EdiDocumentResponseDto>::write_routes_guarded(
         service,
         "/edi_documents",
+        edi_document_permissions(),
     )
 }
 

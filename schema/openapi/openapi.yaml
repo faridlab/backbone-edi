@@ -820,9 +820,7 @@ components:
         - direction
         - control_number
         - business_key
-        - status
         - payload
-        - metadata
       properties:
         partner_id:
           type: string
@@ -835,26 +833,8 @@ components:
           type: string
         business_key:
           type: string
-        status:
-          type: string
         payload:
           type: string
-        mapped_ref_type:
-          nullable: true
-          type: string
-        mapped_ref_id:
-          nullable: true
-          type: string
-          format: uuid
-        error_detail:
-          nullable: true
-          type: string
-        acknowledged_at:
-          nullable: true
-          type: string
-          format: date-time
-        metadata:
-          type: object
 
     UpdateEdiDocumentRequest:
       type: object
@@ -864,9 +844,7 @@ components:
         - direction
         - control_number
         - business_key
-        - status
         - payload
-        - metadata
       properties:
         partner_id:
           type: string
@@ -879,26 +857,8 @@ components:
           type: string
         business_key:
           type: string
-        status:
-          type: string
         payload:
           type: string
-        mapped_ref_type:
-          nullable: true
-          type: string
-        mapped_ref_id:
-          nullable: true
-          type: string
-          format: uuid
-        error_detail:
-          nullable: true
-          type: string
-        acknowledged_at:
-          nullable: true
-          type: string
-          format: date-time
-        metadata:
-          type: object
 
     PatchEdiDocumentRequest:
       type: object
@@ -914,26 +874,8 @@ components:
           type: string
         business_key:
           type: string
-        status:
-          type: string
         payload:
           type: string
-        mapped_ref_type:
-          nullable: true
-          type: string
-        mapped_ref_id:
-          nullable: true
-          type: string
-          format: uuid
-        error_detail:
-          nullable: true
-          type: string
-        acknowledged_at:
-          nullable: true
-          type: string
-          format: date-time
-        metadata:
-          type: object
 
     EdiDocumentList:
       type: object
@@ -990,10 +932,6 @@ components:
       required:
         - name
         - partner_code
-        - format
-        - partner_direction
-        - status
-        - metadata
       properties:
         name:
           type: string
@@ -1005,8 +943,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     UpdateTradingPartnerRequest:
       type: object
@@ -1016,7 +952,6 @@ components:
         - format
         - partner_direction
         - status
-        - metadata
       properties:
         name:
           type: string
@@ -1028,8 +963,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     PatchTradingPartnerRequest:
       type: object
@@ -1044,8 +977,6 @@ components:
           type: string
         status:
           type: string
-        metadata:
-          type: object
 
     TradingPartnerList:
       type: object

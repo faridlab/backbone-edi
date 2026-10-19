@@ -238,6 +238,15 @@ impl super::Entity for EdiDocument {
 }
 
 impl backbone_core::PersistentEntity for EdiDocument {
+    fn write_protected_fields() -> &'static [&'static str] {
+        &["status", "mapped_ref_type", "mapped_ref_id", "error_detail", "acknowledged_at"]
+    }
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("partner_id", "edi.trading_partners", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

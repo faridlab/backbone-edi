@@ -80,6 +80,13 @@ impl axum::response::IntoResponse for TradingPartnerError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `trading_partner:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn trading_partner_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("trading_partner")
+        .in_module("edi")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for TradingPartner.
 ///
 /// # Routes
@@ -109,21 +116,23 @@ impl axum::response::IntoResponse for TradingPartnerError {
 /// let router = create_trading_partner_routes(service);
 /// ```
 pub fn create_trading_partner_routes(service: Arc<TradingPartnerService>) -> Router {
-    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::routes(
+    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::routes_guarded(
         service,
         "/trading_partners",
+        trading_partner_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for TradingPartner.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_trading_partner_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_trading_partner_read_routes(service: Arc<TradingPartnerService>) -> Router {
-    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::read_routes(
+    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::read_routes_guarded(
         service,
         "/trading_partners",
+        trading_partner_permissions(),
     )
 }
 
@@ -139,9 +148,10 @@ pub fn create_trading_partner_read_routes(service: Arc<TradingPartnerService>) -
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_trading_partner_write_routes(service: Arc<TradingPartnerService>) -> Router {
-    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::write_routes(
+    BackboneCrudHandler::<TradingPartnerService, TradingPartner, CreateTradingPartnerDto, UpdateTradingPartnerDto, TradingPartnerResponseDto>::write_routes_guarded(
         service,
         "/trading_partners",
+        trading_partner_permissions(),
     )
 }
 

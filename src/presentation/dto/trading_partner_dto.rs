@@ -36,10 +36,24 @@ pub struct CreateTradingPartnerDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "partner_code")]
     pub partner_code: String,
+    #[serde(default = "default_create_trading_partner_format")]
     pub format: EdiFormat,
-    #[serde(alias = "partner_direction")]
+    #[serde(default = "default_create_trading_partner_partner_direction", alias = "partner_direction")]
     pub partner_direction: PartnerDirection,
+    #[serde(default = "default_create_trading_partner_status")]
     pub status: TradingPartnerStatus,
+}
+
+fn default_create_trading_partner_format() -> EdiFormat {
+    EdiFormat::CustomJson
+}
+
+fn default_create_trading_partner_partner_direction() -> PartnerDirection {
+    PartnerDirection::Both
+}
+
+fn default_create_trading_partner_status() -> TradingPartnerStatus {
+    TradingPartnerStatus::Active
 }
 
 // =============================================================================
@@ -257,12 +271,4 @@ impl backbone_core::ApplyUpdateDto<UpdateTradingPartnerDto> for TradingPartner {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to TradingPartner here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

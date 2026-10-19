@@ -299,11 +299,3 @@ impl backbone_core::ApplyUpdateDto<UpdateEdiDocumentDto> for EdiDocument {
     }
 }
 
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to EdiDocument here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
-

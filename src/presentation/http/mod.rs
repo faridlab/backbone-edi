@@ -10,5 +10,5 @@ pub mod trading_partner_handler;
 
 
 // Re-exports
-pub use edi_document_handler::{create_edi_document_routes, create_edi_document_read_routes, create_edi_document_write_routes};
-pub use trading_partner_handler::{create_trading_partner_routes, create_trading_partner_read_routes, create_trading_partner_write_routes};
+pub use edi_document_handler::{create_edi_document_routes, create_edi_document_read_routes, create_edi_document_write_routes, edi_document_permissions};
+pub use trading_partner_handler::{create_trading_partner_routes, create_trading_partner_read_routes, create_trading_partner_write_routes, trading_partner_permissions};
